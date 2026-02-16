@@ -1,4 +1,4 @@
-# Pod Curious — Setup Guide
+# Pod Curious
 
 **Share a podcast episode. Build a playlist around it.**
 
@@ -74,38 +74,21 @@ Pod Curious needs two API keys to work. Think of these as passwords that let the
 
 ---
 
-## Step 4: Set Up the App
-
-### 4a: Create the project folder
+## Step 4: Download the App
 
 Copy and paste this into Terminal, then press Enter:
 
 ```
-mkdir -p ~/pod-curious/public
+git clone https://github.com/KevinPDonohue/pod-curious.git
 ```
 
-### 4b: Move the files into place
-
-You should have received 3 files:
-- `pod-curious-server.js`
-- `pod-curious-index.html`
-- `pod-curious-package.json`
-
-After downloading them, run these commands in Terminal:
-
-```
-mv ~/Downloads/pod-curious-server.js ~/pod-curious/server.js
-mv ~/Downloads/pod-curious-index.html ~/pod-curious/public/index.html
-mv ~/Downloads/pod-curious-package.json ~/pod-curious/package.json
-```
-
-### 4c: Verify everything is in place
+Verify everything is in place:
 
 ```
 ls ~/pod-curious/
 ```
 
-You should see: `package.json  public  server.js`
+You should see: `README.md  package.json  public  server.js`
 
 ```
 ls ~/pod-curious/public/
@@ -120,7 +103,8 @@ You should see: `index.html`
 Copy this command, but **replace the placeholder keys with your real keys** (do this in Notes first, then paste into Terminal):
 
 ```
-ANTHROPIC_API_KEY=sk-ant-YOUR-KEY-HERE LISTEN_NOTES_KEY=YOUR-LN-KEY-HERE node ~/pod-curious/server.js
+cd ~/pod-curious
+ANTHROPIC_API_KEY=sk-ant-YOUR-KEY-HERE LISTEN_NOTES_KEY=YOUR-LN-KEY-HERE node server.js
 ```
 
 You should see:
@@ -152,7 +136,8 @@ Each time you want to use Pod Curious:
 1. Open Terminal
 2. Run:
 ```
-ANTHROPIC_API_KEY=sk-ant-YOUR-KEY-HERE LISTEN_NOTES_KEY=YOUR-LN-KEY-HERE node ~/pod-curious/server.js
+cd ~/pod-curious
+ANTHROPIC_API_KEY=sk-ant-YOUR-KEY-HERE LISTEN_NOTES_KEY=YOUR-LN-KEY-HERE node server.js
 ```
 3. Open **http://localhost:3000** in your browser
 4. When done, press **Ctrl + C** in Terminal to stop
@@ -191,7 +176,7 @@ The `index.html` file is missing from the public folder. Run:
 ```
 ls ~/pod-curious/public/
 ```
-If it's empty, re-download the files and move them again (Step 4b).
+If it's empty, re-clone the repo (Step 4).
 
 ### Spotify links don't work
 Spotify pages don't always provide episode info. Try sharing an Apple Podcasts link instead — they work most reliably.
