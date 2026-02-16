@@ -1,0 +1,10 @@
+{
+  "name": "pod-curious",
+  "version": "1.0.0",
+  "description": "Share a podcast episode. Build a playlist around it.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "license": "MIT"
+}
