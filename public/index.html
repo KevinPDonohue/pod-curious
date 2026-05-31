@@ -1,0 +1,647 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pod Curious</title>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Outfit:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #FAF7F2; --bg-warm: #F5F0E8; --bg-card: #FFFFFF;
+      --text: #1A1A1A; --text-mid: #4A4A4A; --text-dim: #8A8A8A; --text-faint: #B5B5B5;
+      --accent: #C45D3E; --accent-light: #E8A08C; --accent-bg: #FDF0EC;
+      --green: #3D7A5F; --green-bg: #EDF5F0;
+      --border: #E8E4DE; --border-light: #F0ECE6;
+      --serif: 'Instrument Serif', Georgia, serif;
+      --sans: 'Outfit', -apple-system, sans-serif;
+      --mono: 'IBM Plex Mono', monospace;
+    }
+
+    body { background: var(--bg); color: var(--text); font-family: var(--sans); min-height: 100vh; -webkit-font-smoothing: antialiased; }
+
+    .container { max-width: 640px; margin: 0 auto; padding: 0 24px 60px; }
+
+    /* ─── Header ─── */
+    .header { padding: 40px 0 32px; text-align: center; }
+    .header-brand { font: 400 36px/1 var(--serif); color: var(--text); letter-spacing: -0.5px; }
+    .header-brand em { font-style: italic; color: var(--accent); }
+    .header-tagline { font: 300 14px var(--sans); color: var(--text-dim); margin-top: 6px; letter-spacing: 0.3px; }
+
+    /* ─── Step indicators ─── */
+    .steps { display: flex; justify-content: center; gap: 8px; margin-bottom: 32px; }
+    .step-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--border); transition: all 0.3s; }
+    .step-dot.active { background: var(--accent); width: 24px; border-radius: 4px; }
+    .step-dot.done { background: var(--green); }
+
+    /* ─── Cards ─── */
+    .card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 16px; padding: 28px; margin-bottom: 20px; animation: fadeUp 0.4s ease; }
+    .card-label { font: 500 10px var(--mono); color: var(--text-dim); text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 12px; }
+
+    /* ─── Input area ─── */
+    .paste-area { position: relative; }
+    .paste-area input {
+      width: 100%; padding: 16px 52px 16px 20px; border-radius: 12px;
+      border: 1.5px solid var(--border); background: var(--bg);
+      font: 400 15px var(--sans); color: var(--text); outline: none;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    .paste-area input::placeholder { color: var(--text-faint); }
+    .paste-area input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-bg); }
+    .btn-go {
+      position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+      width: 40px; height: 40px; border-radius: 10px; border: none;
+      background: var(--border-light); color: var(--text-faint);
+      font-size: 18px; cursor: default; display: flex;
+      align-items: center; justify-content: center; transition: all 0.2s;
+    }
+    .btn-go.active { background: var(--accent); color: #fff; cursor: pointer; }
+
+    .home-intro { text-align: center; margin-bottom: 36px; }
+    .home-intro h1 { font: 400 32px/1.2 var(--serif); margin-bottom: 12px; }
+    .home-intro p { font: 300 15px/1.6 var(--sans); color: var(--text-mid); max-width: 480px; margin: 0 auto; }
+
+    /* ─── Analysis card ─── */
+    .analysis-content { font: 300 16px/1.7 var(--sans); color: var(--text-mid); }
+    .analysis-meta { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+    .meta-tag { padding: 4px 12px; border-radius: 999px; font: 400 12px var(--sans); }
+    .meta-tag.topic { background: var(--accent-bg); color: var(--accent); }
+    .meta-tag.tone { background: var(--green-bg); color: var(--green); }
+    .meta-tag.guest { background: #EEE8F5; color: #6B4C9A; }
+    .episode-info { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; padding-bottom: 16px; border-bottom: 1px solid var(--border-light); }
+    .ep-thumb { width: 56px; height: 56px; border-radius: 10px; background: var(--bg-warm); display: flex; align-items: center; justify-content: center; font-size: 24px; flex-shrink: 0; overflow: hidden; }
+    .ep-thumb img { width: 100%; height: 100%; object-fit: cover; }
+    .ep-name { font: 500 14px var(--sans); color: var(--text); margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .ep-show { font: 400 12px var(--sans); color: var(--text-dim); }
+
+    /* ─── Chat / Refinement ─── */
+    .chat-area { margin-top: 20px; }
+    .chat-messages { display: flex; flex-direction: column; gap: 12px; margin-bottom: 16px; }
+    .chat-msg { max-width: 88%; padding: 14px 18px; border-radius: 16px; font: 300 14px/1.6 var(--sans); animation: fadeUp 0.3s ease; }
+    .chat-msg.assistant { background: var(--bg-warm); color: var(--text-mid); border-bottom-left-radius: 4px; align-self: flex-start; }
+    .chat-msg.user { background: var(--accent); color: #fff; border-bottom-right-radius: 4px; align-self: flex-end; }
+    .chat-input-row { display: flex; gap: 8px; }
+    .chat-input {
+      flex: 1; padding: 14px 18px; border-radius: 12px;
+      border: 1.5px solid var(--border); background: var(--bg-card);
+      font: 400 14px var(--sans); color: var(--text); outline: none;
+      transition: border-color 0.2s;
+    }
+    .chat-input:focus { border-color: var(--accent); }
+    .chat-input::placeholder { color: var(--text-faint); }
+    .btn-send {
+      padding: 0 20px; border-radius: 12px; border: none;
+      background: var(--accent); color: #fff;
+      font: 500 14px var(--sans); cursor: pointer; transition: opacity 0.2s;
+      white-space: nowrap;
+    }
+    .btn-send:disabled { opacity: 0.4; cursor: default; }
+
+    /* ─── Duration picker ─── */
+    .duration-section { margin-top: 20px; padding: 20px; background: var(--accent-bg); border-radius: 14px; animation: fadeUp 0.3s ease; }
+    .duration-label { font: 500 13px var(--sans); color: var(--accent); margin-bottom: 12px; }
+    .duration-options { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+    .dur-pill {
+      padding: 8px 16px; border-radius: 999px; border: 1.5px solid var(--accent-light);
+      background: transparent; color: var(--accent); font: 400 13px var(--sans);
+      cursor: pointer; transition: all 0.2s;
+    }
+    .dur-pill:hover { background: rgba(196,93,62,0.08); }
+    .dur-pill.selected { background: var(--accent); color: #fff; border-color: var(--accent); }
+    .btn-generate {
+      width: 100%; padding: 14px; border-radius: 12px; border: none;
+      background: var(--accent); color: #fff; font: 500 15px var(--sans);
+      cursor: pointer; transition: all 0.2s; margin-top: 4px;
+    }
+    .btn-generate:disabled { opacity: 0.4; cursor: default; }
+
+    /* ─── Playlist ─── */
+    .playlist-header { text-align: center; margin-bottom: 24px; }
+    .playlist-title { font: 400 28px/1.2 var(--serif); margin-bottom: 6px; }
+    .playlist-desc { font: 300 14px var(--sans); color: var(--text-dim); }
+    .playlist-stats { display: flex; justify-content: center; gap: 20px; margin-top: 12px; }
+    .stat { text-align: center; }
+    .stat-val { font: 500 20px var(--sans); color: var(--accent); }
+    .stat-label { font: 400 10px var(--mono); color: var(--text-dim); text-transform: uppercase; letter-spacing: 1px; margin-top: 2px; }
+
+    .playlist-items { display: flex; flex-direction: column; gap: 2px; }
+    .playlist-ep {
+      display: flex; align-items: flex-start; gap: 14px; padding: 16px;
+      border-radius: 12px; transition: background 0.2s; cursor: default;
+      animation: fadeUp 0.3s ease;
+    }
+    .playlist-ep:hover { background: var(--bg-warm); }
+    .ep-num { font: 500 14px var(--mono); color: var(--text-faint); width: 28px; text-align: center; flex-shrink: 0; padding-top: 8px; }
+    .ep-art { width: 52px; height: 52px; border-radius: 8px; flex-shrink: 0; overflow: hidden; background: var(--bg-warm); }
+    .ep-art img { width: 100%; height: 100%; object-fit: cover; }
+    .ep-info { flex: 1; min-width: 0; }
+    .ep-info-title { font: 500 14px var(--sans); color: var(--text); margin-bottom: 3px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .ep-info-show { font: 400 12px var(--sans); color: var(--text-dim); }
+    .ep-info-meta { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 5px; }
+    .ep-meta-tag { font: 400 10px var(--mono); color: var(--text-dim); background: var(--bg-warm); padding: 2px 8px; border-radius: 4px; }
+    .ep-info-desc { font: 300 12px/1.5 var(--sans); color: var(--text-dim); margin-top: 6px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .ep-right { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; flex-shrink: 0; }
+    .ep-dur { font: 400 12px var(--mono); color: var(--text-dim); }
+    .ep-links { display: flex; flex-shrink: 0; }
+    .ep-listen-btn {
+      padding: 8px 16px; border-radius: 8px; border: 1.5px solid var(--accent);
+      background: var(--accent-bg); color: var(--accent); font: 500 12px var(--sans);
+      cursor: pointer; transition: all 0.2s; text-decoration: none;
+      display: flex; align-items: center; gap: 6px; white-space: nowrap;
+    }
+    .ep-listen-btn:hover { background: var(--accent); color: #fff; }
+    .ep-listen-btn .listen-icon { font-size: 14px; }
+    .ep-listen-btn.playing { background: var(--accent); color: #fff; }
+
+    .ep-player-wrap {
+      max-height: 0; overflow: hidden; transition: max-height 0.3s ease, padding 0.3s ease;
+      padding: 0 16px;
+    }
+    .ep-player-wrap.open { max-height: 220px; padding: 12px 16px; }
+    .ep-player-wrap iframe { width: 100%; height: 170px; border: none; border-radius: 10px; }
+
+    .running-time { display: flex; justify-content: space-between; padding: 12px 16px; border-top: 1px solid var(--border-light); margin-top: 8px; }
+    .rt-label { font: 400 12px var(--sans); color: var(--text-dim); }
+    .rt-value { font: 500 12px var(--mono); color: var(--accent); }
+
+    .btn-start-over {
+      display: block; margin: 24px auto 0; padding: 10px 24px; border-radius: 999px;
+      border: 1.5px solid var(--border); background: transparent;
+      color: var(--text-dim); font: 400 13px var(--sans); cursor: pointer;
+    }
+
+    .guidance-msg {
+      padding: 20px; margin-bottom: 20px; border-radius: 14px;
+      background: var(--accent-bg); border: 1px solid var(--accent-light);
+      animation: fadeUp 0.3s ease;
+    }
+    .guidance-msg .guidance-title { font: 500 14px var(--sans); color: var(--accent); margin-bottom: 6px; }
+    .guidance-msg .guidance-text { font: 300 13px/1.6 var(--sans); color: var(--text-mid); }
+    .guidance-msg .guidance-tips { margin-top: 10px; font: 300 12px/1.7 var(--sans); color: var(--text-dim); }
+
+    /* ─── Loading ─── */
+    .loading-inline { display: flex; align-items: center; gap: 10px; padding: 16px 0; color: var(--text-dim); font: 300 14px var(--sans); }
+    .dot-pulse { display: flex; gap: 4px; }
+    .dot-pulse span { width: 6px; height: 6px; border-radius: 50%; background: var(--accent-light); animation: dotBounce 1.2s ease infinite; }
+    .dot-pulse span:nth-child(2) { animation-delay: 0.15s; }
+    .dot-pulse span:nth-child(3) { animation-delay: 0.3s; }
+
+    .hidden { display: none !important; }
+
+    @keyframes fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes dotBounce { 0%, 80%, 100% { opacity: 0.3; } 40% { opacity: 1; } }
+  </style>
+</head>
+<body>
+<div class="container">
+  <!-- Header -->
+  <div class="header">
+    <div class="header-brand">Pod <em>Curious</em></div>
+    <div class="header-tagline">Share anything. Build a playlist.</div>
+  </div>
+
+  <!-- Steps -->
+  <div class="steps">
+    <div class="step-dot active" id="dot1"></div>
+    <div class="step-dot" id="dot2"></div>
+    <div class="step-dot" id="dot3"></div>
+  </div>
+
+  <!-- STEP 1: Paste link -->
+  <div id="step1">
+    <div class="home-intro">
+      <h1>What are you curious about?</h1>
+      <p>Paste a link to an article, Wikipedia page, podcast episode, or anything — and we'll build a podcast playlist around it.</p>
+    </div>
+    <div class="card">
+      <div class="paste-area">
+        <input type="text" id="linkInput" placeholder="Paste any link — article, Wikipedia, podcast..." />
+        <button class="btn-go" id="btnGo" onclick="analyzeLink()">→</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- STEP 2: Analysis + Chat + Duration -->
+  <div id="step2" class="hidden">
+    <!-- Analysis card -->
+    <div class="card" id="analysisCard"></div>
+
+    <!-- Chat refinement -->
+    <div class="card">
+      <div class="card-label">Refine your playlist</div>
+      <div class="chat-area">
+        <div class="chat-messages" id="chatMessages"></div>
+        <div class="chat-input-row">
+          <input type="text" class="chat-input" id="chatInput" placeholder="Tell me more about what you want..." />
+          <button class="btn-send" id="btnSend" onclick="sendChat()">Send</button>
+        </div>
+      </div>
+
+      <!-- Duration picker -->
+      <div class="duration-section" id="durationSection">
+        <div class="duration-label">How long should your playlist be?</div>
+        <div class="duration-options">
+          <button class="dur-pill" data-min="30" onclick="pickDuration(this)">30 min</button>
+          <button class="dur-pill" data-min="60" onclick="pickDuration(this)">1 hour</button>
+          <button class="dur-pill" data-min="120" onclick="pickDuration(this)">2 hours</button>
+          <button class="dur-pill" data-min="300" onclick="pickDuration(this)">5 hours</button>
+          <button class="dur-pill" data-min="480" onclick="pickDuration(this)">8 hours</button>
+          <button class="dur-pill" data-min="600" onclick="pickDuration(this)">10 hours</button>
+        </div>
+        <button class="btn-generate" id="btnGenerate" disabled onclick="generatePlaylist()">Build my playlist</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- STEP 3: Playlist -->
+  <div id="step3" class="hidden">
+    <div id="playlistContent"></div>
+    <div id="playlistGuidance" class="hidden"></div>
+    <div class="card" id="refineCard">
+      <div class="card-label">Refine your playlist</div>
+      <div style="font:300 13px/1.5 var(--sans);color:var(--text-dim);margin-bottom:12px;">Not quite right? Adjust your request and we'll rebuild it.</div>
+      <div class="chat-input-row">
+        <input type="text" class="chat-input" id="refineInput" placeholder="e.g. more mainstream podcasts, broader topics, longer episodes..." />
+        <button class="btn-send" id="btnRefine" onclick="refinePlaylist()">Rebuild</button>
+      </div>
+    </div>
+    <button class="btn-start-over" onclick="startOver()">Start over completely</button>
+  </div>
+
+  <!-- Loading overlay for playlist generation -->
+  <div id="playlistLoading" class="hidden">
+    <div class="card" style="text-align:center;padding:48px 28px;">
+      <div style="font:400 24px/1 var(--serif);margin-bottom:12px;">Building your playlist...</div>
+      <div style="font:300 14px var(--sans);color:var(--text-dim);margin-bottom:20px;">Finding episodes that fit your vibe</div>
+      <div class="dot-pulse" style="justify-content:center;"><span></span><span></span><span></span></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ─── State ────────────────────────────────────────────────────────────
+let state = {
+  analysis: null,
+  chatHistory: [],    // {role, content} for Claude
+  uiMessages: [],     // for display
+  selectedDuration: null,
+  playlistPrompt: "",
+};
+
+const linkInput = document.getElementById("linkInput");
+const btnGo = document.getElementById("btnGo");
+const chatInput = document.getElementById("chatInput");
+
+linkInput.addEventListener("input", () => { btnGo.classList.toggle("active", linkInput.value.trim().length > 0); });
+linkInput.addEventListener("keydown", (e) => { if (e.key === "Enter") analyzeLink(); });
+chatInput.addEventListener("keydown", (e) => { if (e.key === "Enter") sendChat(); });
+document.getElementById("refineInput").addEventListener("keydown", (e) => { if (e.key === "Enter") refinePlaylist(); });
+
+// ─── Step 1: Analyze ─────────────────────────────────────────────────
+async function analyzeLink() {
+  const url = linkInput.value.trim();
+  if (!url) return;
+
+  btnGo.classList.remove("active");
+  btnGo.textContent = "...";
+
+  try {
+    const resp = await fetch("/api/analyze", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url }),
+    });
+    if (!resp.ok) throw new Error((await resp.json()).error);
+    const data = await resp.json();
+    state.analysis = data;
+
+    renderAnalysis(data);
+    showStep(2);
+
+    // Seed the chat with the suggested prompt
+    const suggestion = data.analysis.suggestedPrompt;
+    addAssistantMessage(suggestion);
+    state.chatHistory = [
+      { role: "user", content: `I just shared this ${data.contentType || "content"}: "${data.episode}" from "${data.podcast}". Description: "${data.description}". Analysis: ${JSON.stringify(data.analysis)}` },
+      { role: "assistant", content: suggestion },
+    ];
+  } catch (err) {
+    alert("Couldn't analyze that link: " + err.message);
+  } finally {
+    btnGo.textContent = "→";
+    btnGo.classList.toggle("active", linkInput.value.trim().length > 0);
+  }
+}
+
+function renderAnalysis(data) {
+  const a = data.analysis;
+  const contentType = data.contentType || "podcast episode";
+  const icon = contentType === "podcast episode" ? "🎧" : contentType === "Wikipedia article" ? "📖" : "📰";
+  const label = contentType === "podcast episode" ? "Episode analysis" : "Content analysis";
+  const topics = (a.topics || []).map(t => `<span class="meta-tag topic">${esc(t)}</span>`).join("");
+  const toneTag = a.tone ? `<span class="meta-tag tone">${esc(a.tone)}</span>` : "";
+  const guestTag = a.guest ? `<span class="meta-tag guest">🎤 ${esc(a.guest)}</span>` : "";
+
+  document.getElementById("analysisCard").innerHTML = `
+    <div class="card-label">${label}</div>
+    <div class="episode-info">
+      <div class="ep-thumb">${data.image ? `<img src="${esc(data.image)}" alt="" />` : icon}</div>
+      <div style="min-width:0;">
+        <div class="ep-name">${esc(data.episode)}</div>
+        <div class="ep-show">${esc(data.podcast)}</div>
+      </div>
+    </div>
+    <div class="analysis-content">${esc(a.summary)}</div>
+    <div class="analysis-meta">${guestTag}${toneTag}${topics}</div>
+  `;
+}
+
+// ─── Step 2: Chat ─────────────────────────────────────────────────────
+function addAssistantMessage(text) {
+  state.uiMessages.push({ role: "assistant", content: text });
+  renderChat();
+}
+
+function addUserMessage(text) {
+  state.uiMessages.push({ role: "user", content: text });
+  renderChat();
+}
+
+function renderChat() {
+  const container = document.getElementById("chatMessages");
+  container.innerHTML = state.uiMessages.map(m =>
+    `<div class="chat-msg ${m.role}">${esc(m.content)}</div>`
+  ).join("");
+  container.scrollTop = container.scrollHeight;
+}
+
+async function sendChat() {
+  const text = chatInput.value.trim();
+  if (!text) return;
+
+  addUserMessage(text);
+  chatInput.value = "";
+  state.chatHistory.push({ role: "user", content: text });
+
+  // Show loading
+  const loadingId = "loading-" + Date.now();
+  const container = document.getElementById("chatMessages");
+  container.innerHTML += `<div class="loading-inline" id="${loadingId}"><div class="dot-pulse"><span></span><span></span><span></span></div> Thinking...</div>`;
+
+  try {
+    const resp = await fetch("/api/chat", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages: state.chatHistory }),
+    });
+    if (!resp.ok) throw new Error((await resp.json()).error);
+    const data = await resp.json();
+
+    document.getElementById(loadingId)?.remove();
+    addAssistantMessage(data.reply);
+    state.chatHistory.push({ role: "assistant", content: data.reply });
+  } catch (err) {
+    document.getElementById(loadingId)?.remove();
+    addAssistantMessage("Sorry, something went wrong. Try again?");
+  }
+}
+
+// ─── Duration picker ──────────────────────────────────────────────────
+function pickDuration(el) {
+  document.querySelectorAll(".dur-pill").forEach(p => p.classList.remove("selected"));
+  el.classList.add("selected");
+  state.selectedDuration = parseInt(el.dataset.min);
+  document.getElementById("btnGenerate").disabled = false;
+}
+
+// ─── Step 3: Generate Playlist ────────────────────────────────────────
+function buildPlaylistPrompt(extraRefinement) {
+  const chatSummary = state.chatHistory
+    .filter(m => m.role === "user")
+    .map(m => m.content)
+    .join(". ");
+
+  const a = state.analysis?.analysis || {};
+  let prompt = `Original episode: "${state.analysis?.episode}" from "${state.analysis?.podcast}".
+Episode topics: ${(a.topics || []).join(", ")}.
+Tone: ${a.tone || "mixed"}.
+Guest: ${a.guest || "none"}.
+User refinements: ${chatSummary}`;
+
+  if (extraRefinement) {
+    prompt += `\nAdditional refinement: ${extraRefinement}`;
+  }
+  if (state.refinements && state.refinements.length > 0) {
+    prompt += `\nPrevious refinements: ${state.refinements.join(". ")}`;
+  }
+
+  return prompt;
+}
+
+async function generatePlaylist(extraRefinement) {
+  if (!state.selectedDuration) return;
+
+  const prompt = buildPlaylistPrompt(extraRefinement);
+  state.lastPrompt = prompt;
+
+  showStep("loading");
+
+  try {
+    const resp = await fetch("/api/playlist", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt, durationMinutes: state.selectedDuration }),
+    });
+    if (!resp.ok) throw new Error((await resp.json()).error);
+    const playlist = await resp.json();
+    renderPlaylist(playlist);
+    showGuidance(playlist);
+    showStep(3);
+  } catch (err) {
+    alert("Couldn't generate playlist: " + err.message);
+    showStep(2);
+  }
+}
+
+async function refinePlaylist() {
+  const refineText = document.getElementById("refineInput").value.trim();
+  if (!refineText) return;
+
+  // Track refinements
+  if (!state.refinements) state.refinements = [];
+  state.refinements.push(refineText);
+  document.getElementById("refineInput").value = "";
+
+  await generatePlaylist(refineText);
+}
+
+function showGuidance(pl) {
+  const guidanceEl = document.getElementById("playlistGuidance");
+  const count = pl.episodes?.length || 0;
+  const targetMin = state.selectedDuration;
+  const actualMin = pl.totalMinutes || 0;
+
+  if (count === 0) {
+    guidanceEl.innerHTML = `
+      <div class="guidance-msg">
+        <div class="guidance-title">No playable episodes found</div>
+        <div class="guidance-text">We couldn't find matching episodes with embedded players. This usually happens with very niche or specific topics.</div>
+        <div class="guidance-tips">Try: broader topics, well-known podcast names, or more general themes. You can refine below without starting over.</div>
+      </div>`;
+    guidanceEl.classList.remove("hidden");
+  } else if (count <= 2 || actualMin < targetMin * 0.5) {
+    guidanceEl.innerHTML = `
+      <div class="guidance-msg">
+        <div class="guidance-title">Limited results</div>
+        <div class="guidance-text">We found ${count} episode${count === 1 ? "" : "s"} (${actualMin} min of your ${targetMin} min target). Some suggested episodes couldn't be matched to playable sources.</div>
+        <div class="guidance-tips">Try: broadening your topic, using more general terms, or requesting well-known podcasts. Use the refine box below to adjust.</div>
+      </div>`;
+    guidanceEl.classList.remove("hidden");
+  } else {
+    guidanceEl.classList.add("hidden");
+  }
+}
+
+function renderPlaylist(pl) {
+  const totalMin = pl.totalMinutes || pl.episodes.reduce((s, e) => s + (e.duration || 0), 0);
+  const hours = Math.floor(totalMin / 60);
+  const mins = totalMin % 60;
+  const timeStr = hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
+
+  let runningMin = 0;
+  const episodeHtml = pl.episodes.map((ep, i) => {
+    runningMin += ep.duration || 0;
+    const runH = Math.floor(runningMin / 60);
+    const runM = runningMin % 60;
+    const runStr = runH > 0 ? `${runH}h ${runM}m` : `${runM}m`;
+
+    const sq = encodeURIComponent((ep.podcast || '') + ' ' + (ep.episode || '') + ' podcast');
+    const hasEmbed = !!ep.listenNotesId;
+
+    // Use Listen Notes data when available, fall back to Claude's suggestions
+    const title = ep.lnTitle || ep.episode;
+    const showName = ep.lnPodcast || ep.podcast;
+    const description = ep.lnDescription || ep.description;
+    const artworkUrl = ep.listenNotesImage || ep.lnPodcastImage;
+    const publisher = ep.lnPublisher;
+    const pubDate = ep.lnPubDate;
+    const realDuration = ep.lnAudioLength || ep.duration;
+
+    const linksHtml = hasEmbed
+      ? `<button class="ep-listen-btn" onclick="event.stopPropagation(); togglePlayer('${ep.listenNotesId}', this)"><span class="listen-icon">▶</span> Listen</button>`
+      : "";
+
+    const playerHtml = hasEmbed ? `<div class="ep-player-wrap" id="player-${ep.listenNotesId}"></div>` : "";
+
+    // Build metadata tags
+    let metaTags = "";
+    if (pubDate) metaTags += `<span class="ep-meta-tag">${esc(pubDate)}</span>`;
+    if (realDuration) metaTags += `<span class="ep-meta-tag">${realDuration} min</span>`;
+    if (publisher && publisher !== showName) metaTags += `<span class="ep-meta-tag">${esc(publisher)}</span>`;
+
+    return `
+    <div class="playlist-ep" style="animation-delay:${i * 0.05}s">
+      <div class="ep-num">${i + 1}</div>
+      ${artworkUrl ? `<div class="ep-art"><img src="${artworkUrl}" alt="" /></div>` : ""}
+      <div class="ep-info">
+        <div class="ep-info-title">${esc(title)}</div>
+        <div class="ep-info-show">${esc(showName)}${ep.guest ? ` · ${esc(ep.guest)}` : ""}</div>
+        ${metaTags ? `<div class="ep-info-meta">${metaTags}</div>` : ""}
+        <div class="ep-info-desc">${esc(description)}</div>
+      </div>
+      <div class="ep-right">
+        ${linksHtml}
+      </div>
+    </div>
+    ${playerHtml}
+    <div class="running-time">
+      <span class="rt-label">Running total</span>
+      <span class="rt-value">${runStr}</span>
+    </div>`;
+  }).join("");
+
+  document.getElementById("playlistContent").innerHTML = `
+    <div class="card">
+      <div class="playlist-header">
+        <div class="playlist-title">${esc(pl.playlistTitle)}</div>
+        <div class="playlist-desc">${esc(pl.playlistDescription)}</div>
+        <div class="playlist-stats">
+          <div class="stat"><div class="stat-val">${pl.episodes.length}</div><div class="stat-label">Episodes</div></div>
+          <div class="stat"><div class="stat-val">${timeStr}</div><div class="stat-label">Total time</div></div>
+        </div>
+      </div>
+      <div class="playlist-items">${episodeHtml}</div>
+      ${pl.note ? `<div style="margin-top:20px;padding:16px;background:var(--bg-warm);border-radius:10px;font:300 13px/1.6 var(--sans);color:var(--text-mid);"><strong style="font-weight:500;">Playlist arc:</strong> ${esc(pl.note)}</div>` : ""}
+    </div>
+  `;
+}
+
+// ─── UI helpers ───────────────────────────────────────────────────────
+
+let currentPlayerId = null;
+
+function togglePlayer(episodeId, btn) {
+  const wrap = document.getElementById("player-" + episodeId);
+  if (!wrap) return;
+
+  // If clicking the same episode, toggle it off
+  if (currentPlayerId === episodeId) {
+    wrap.classList.remove("open");
+    wrap.innerHTML = "";
+    btn.classList.remove("playing");
+    btn.querySelector(".listen-icon").textContent = "▶";
+    currentPlayerId = null;
+    return;
+  }
+
+  // Close any currently open player
+  if (currentPlayerId) {
+    const oldWrap = document.getElementById("player-" + currentPlayerId);
+    if (oldWrap) { oldWrap.classList.remove("open"); oldWrap.innerHTML = ""; }
+    // Reset old button
+    document.querySelectorAll(".ep-listen-btn.playing").forEach(b => {
+      b.classList.remove("playing");
+      b.querySelector(".listen-icon").textContent = "▶";
+    });
+  }
+
+  // Open new player
+  wrap.innerHTML = `<iframe src="https://www.listennotes.com/embedded/e/${episodeId}/" loading="lazy" allow="autoplay"></iframe>`;
+  wrap.classList.add("open");
+  btn.classList.add("playing");
+  btn.querySelector(".listen-icon").textContent = "⏸";
+  currentPlayerId = episodeId;
+
+  // Scroll the player into view
+  setTimeout(() => wrap.scrollIntoView({ behavior: "smooth", block: "nearest" }), 300);
+}
+
+function showStep(n) {
+  document.getElementById("step1").classList.toggle("hidden", n !== 1);
+  document.getElementById("step2").classList.toggle("hidden", n !== 2);
+  document.getElementById("step3").classList.toggle("hidden", n !== 3);
+  document.getElementById("playlistLoading").classList.toggle("hidden", n !== "loading");
+
+  document.getElementById("dot1").className = `step-dot ${n >= 1 ? (n > 1 ? "done" : "active") : ""}`;
+  document.getElementById("dot2").className = `step-dot ${n >= 2 ? (n > 2 ? "done" : "active") : ""}`;
+  document.getElementById("dot3").className = `step-dot ${n >= 3 ? "active" : ""}`;
+}
+
+function startOver() {
+  state = { analysis: null, chatHistory: [], uiMessages: [], selectedDuration: null, playlistPrompt: "", refinements: [] };
+  linkInput.value = "";
+  chatInput.value = "";
+  document.getElementById("chatMessages").innerHTML = "";
+  document.getElementById("playlistGuidance").classList.add("hidden");
+  document.getElementById("refineInput").value = "";
+  document.querySelectorAll(".dur-pill").forEach(p => p.classList.remove("selected"));
+  document.getElementById("btnGenerate").disabled = true;
+  showStep(1);
+}
+
+function esc(str) {
+  if (!str) return "";
+  return String(str).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
+}
+
+showStep(1);
+</script>
+</body>
+</html>
