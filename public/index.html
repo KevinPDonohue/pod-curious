@@ -211,12 +211,12 @@
   <div id="step1">
     <div class="home-intro">
       <h1>What are you curious about?</h1>
-      <p>Paste a link to an article, Wikipedia page, podcast episode, or anything — and we'll build a podcast playlist around it.</p>
+      <p>Paste a link to an article, Wikipedia page, or podcast — or just describe a topic you want to explore.</p>
     </div>
     <div class="card">
       <div class="paste-area">
-        <input type="text" id="linkInput" placeholder="Paste any link — article, Wikipedia, podcast..." />
-        <button class="btn-go" id="btnGo" onclick="analyzeLink()">→</button>
+        <input type="text" id="linkInput" placeholder="Paste a link or describe a topic..." />
+        <button class="btn-go" id="btnGo" onclick="handleInput()">→</button>
       </div>
     </div>
   </div>
@@ -293,9 +293,68 @@ const btnGo = document.getElementById("btnGo");
 const chatInput = document.getElementById("chatInput");
 
 linkInput.addEventListener("input", () => { btnGo.classList.toggle("active", linkInput.value.trim().length > 0); });
-linkInput.addEventListener("keydown", (e) => { if (e.key === "Enter") analyzeLink(); });
+linkInput.addEventListener("keydown", (e) => { if (e.key === "Enter") handleInput(); });
 chatInput.addEventListener("keydown", (e) => { if (e.key === "Enter") sendChat(); });
 document.getElementById("refineInput").addEventListener("keydown", (e) => { if (e.key === "Enter") refinePlaylist(); });
+
+// ─── Step 1: Handle input (URL or plain text topic) ──────────────────
+function handleInput() {
+  const input = linkInput.value.trim();
+  if (!input) return;
+  const isUrl = /^https?:\/\//i.test(input);
+  if (isUrl) {
+    analyzeLink();
+  } else {
+    startFromTopic(input);
+  }
+}
+
+async function startFromTopic(topic) {
+  btnGo.classList.remove("active");
+  btnGo.textContent = "...";
+
+  // Skip analysis, go straight to chat with the topic as context
+  state.analysis = { episode: topic, podcast: "", description: "", image: "", contentType: "topic", analysis: { topics: [], tone: "", guest: null, summary: "" } };
+
+  // Show a minimal analysis card
+  document.getElementById("analysisCard").innerHTML = `
+    <div class="card-label">Your topic</div>
+    <div class="episode-info">
+      <div class="ep-thumb">🎧</div>
+      <div style="min-width:0;">
+        <div class="ep-name">${esc(topic)}</div>
+      </div>
+    </div>
+  `;
+
+  showStep(2);
+
+  // Ask Claude to respond to the topic and suggest a playlist direction
+  const suggestion = await fetchTopicSuggestion(topic);
+  addAssistantMessage(suggestion);
+  state.chatHistory = [
+    { role: "user", content: `I want to explore this topic via podcasts: "${topic}"` },
+    { role: "assistant", content: suggestion },
+  ];
+
+  btnGo.textContent = "→";
+  btnGo.classList.toggle("active", linkInput.value.trim().length > 0);
+}
+
+async function fetchTopicSuggestion(topic) {
+  try {
+    const resp = await fetch("/api/chat", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages: [
+        { role: "user", content: `I want to explore this topic via podcasts: "${topic}". Respond warmly, briefly confirm what kind of podcasts you'll look for, and ask how long they want to listen.` }
+      ]}),
+    });
+    const data = await resp.json();
+    return data.reply || "Great topic! How long would you like your playlist to be?";
+  } catch {
+    return "Great topic! How long would you like your playlist to be?";
+  }
+}
 
 // ─── Step 1: Analyze ─────────────────────────────────────────────────
 async function analyzeLink() {
