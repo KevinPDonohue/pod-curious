@@ -645,12 +645,33 @@ const server = http.createServer(async (req, res) => {
   if (req.method === "POST" && pathname === "/api/chat") return handleChat(req, res);
   if (req.method === "POST" && pathname === "/api/playlist") return handlePlaylist(req, res);
 
-  // Serve shared playlist page
-  if (req.method === "GET" && pathname.startsWith("/p/")) {
-    const id = pathname.slice(3);
+  // Save playlist on demand (e.g. when MongoDB wasn't ready at generation time)
+  if (req.method === "POST" && pathname === "/api/save") {
+    try {
+      const { playlistData, prompt } = await parseBody(req);
+      const ip = getIP(req);
+      const location = await getLocation(ip);
+      const shareId = await savePlaylist(playlistData, prompt || "", location);
+      sendJSON(res, 200, { shareId });
+    } catch (err) {
+      sendJSON(res, 500, { error: err.message });
+    }
+    return;
+  }
+
+  // Serve shared playlist JSON for the frontend to render
+  if (req.method === "GET" && pathname.startsWith("/api/playlist/")) {
+    const id = pathname.slice("/api/playlist/".length);
     const playlist = await getPlaylist(id);
-    if (!playlist) { res.writeHead(404); res.end("Playlist not found"); return; }
-    sendJSON(res, 200, playlist);
+    if (!playlist) { sendJSON(res, 404, { error: "Not found" }); return; }
+    const { _id, ...clean } = playlist;
+    sendJSON(res, 200, clean);
+    return;
+  }
+
+  // Serve the app for shared playlist URLs — frontend handles rendering
+  if (req.method === "GET" && pathname.startsWith("/p/")) {
+    serveStatic(res, path.join(__dirname, "public", "index.html"));
     return;
   }
 

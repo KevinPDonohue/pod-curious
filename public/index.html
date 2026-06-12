@@ -553,6 +553,7 @@ async function generatePlaylist(extraRefinement) {
     if (!resp.ok) throw new Error((await resp.json()).error);
     const playlist = await resp.json();
     state.shareId = playlist.shareId || null;
+    state.lastPlaylist = playlist;
     renderPlaylist(playlist);
     showGuidance(playlist);
     renderShareButton();
@@ -751,32 +752,49 @@ function showStep(n) {
 }
 
 function renderShareButton() {
-  // Remove any existing share button
   const existing = document.getElementById("shareBtn");
   if (existing) existing.remove();
-
-  if (!state.shareId) return;
 
   const btn = document.createElement("button");
   btn.id = "shareBtn";
   btn.className = "btn-share";
-  btn.innerHTML = "🔗 Copy shareable link";
+  btn.innerHTML = "🔗 Share this playlist";
   btn.onclick = () => {
-    const url = window.location.origin + "/p/" + state.shareId;
-    navigator.clipboard.writeText(url).then(() => {
-      btn.textContent = "✓ Copied!";
-      btn.classList.add("copied");
-      setTimeout(() => {
-        btn.innerHTML = "🔗 Copy shareable link";
-        btn.classList.remove("copied");
-      }, 2500);
-    }).catch(() => {
-      // Fallback for older browsers
-      prompt("Copy this link:", url);
-    });
+    const shareUrl = state.shareId
+      ? window.location.origin + "/p/" + state.shareId
+      : null;
+    if (shareUrl) {
+      navigator.clipboard.writeText(shareUrl).then(() => {
+        btn.innerHTML = "✓ Link copied!";
+        btn.classList.add("copied");
+        setTimeout(() => { btn.innerHTML = "🔗 Share this playlist"; btn.classList.remove("copied"); }, 2500);
+      }).catch(() => { prompt("Copy this link:", shareUrl); });
+    } else {
+      btn.innerHTML = "⏳ Saving...";
+      // Retry saving via server
+      fetch("/api/save", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ playlistData: state.lastPlaylist, prompt: state.lastPrompt }),
+      }).then(r => r.json()).then(d => {
+        if (d.shareId) {
+          state.shareId = d.shareId;
+          const url = window.location.origin + "/p/" + d.shareId;
+          navigator.clipboard.writeText(url).then(() => {
+            btn.innerHTML = "✓ Link copied!";
+            btn.classList.add("copied");
+            setTimeout(() => { btn.innerHTML = "🔗 Share this playlist"; btn.classList.remove("copied"); }, 2500);
+          });
+        } else {
+          btn.innerHTML = "⚠️ Sharing unavailable";
+          setTimeout(() => { btn.innerHTML = "🔗 Share this playlist"; }, 2500);
+        }
+      }).catch(() => {
+        btn.innerHTML = "⚠️ Sharing unavailable";
+        setTimeout(() => { btn.innerHTML = "🔗 Share this playlist"; }, 2500);
+      });
+    }
   };
 
-  // Insert before the "Start over" button
   const startOverBtn = document.querySelector(".btn-start-over");
   startOverBtn.parentNode.insertBefore(btn, startOverBtn);
 }
@@ -798,7 +816,36 @@ function esc(str) {
   return String(str).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
 }
 
-showStep(1);
+// ─── Shared playlist loading ──────────────────────────────────────────
+async function loadSharedPlaylist(id) {
+  document.querySelector(".header-tagline").textContent = "Loading shared playlist...";
+  try {
+    const resp = await fetch("/api/playlist/" + id);
+    if (!resp.ok) throw new Error("Not found");
+    const playlist = await resp.json();
+    state.shareId = id;
+    state.lastPlaylist = playlist;
+    state.selectedDuration = playlist.totalMinutes || 60;
+    renderPlaylist(playlist);
+    renderShareButton();
+    // Hide refine card on shared view
+    document.getElementById("refineCard").classList.add("hidden");
+    showStep(3);
+    document.querySelector(".header-tagline").textContent = "Share anything. Build a playlist.";
+  } catch {
+    document.querySelector(".header-tagline").textContent = "Playlist not found.";
+    showStep(1);
+  }
+}
+
+// Check if we're on a shared playlist URL
+const pathMatch = window.location.pathname.match(/^\/p\/([a-z0-9]+)$/);
+if (pathMatch) {
+  showStep("loading");
+  loadSharedPlaylist(pathMatch[1]);
+} else {
+  showStep(1);
+}
 </script>
 </body>
 </html>
