@@ -358,14 +358,31 @@ async function handleChat(req, res) {
   }
 }
 
+async function searchITunes(query, { publishedAfter = null } = {}) {
+  const sq = encodeURIComponent(query.slice(0, 150));
+  const url = `https://itunes.apple.com/search?term=${sq}&media=podcast&entity=podcastEpisode&limit=10&country=US`;
+  return new Promise((resolve) => {
+    https.get(url, { headers: { "User-Agent": "PodCurious/1.0" } }, (r) => {
+      let d = ""; r.on("data", c => d += c);
+      r.on("end", () => {
+        try {
+          const parsed = JSON.parse(d);
+          let results = parsed.results || [];
+          // Filter by publishedAfter if set
+          if (publishedAfter) {
+            const afterMs = publishedAfter * 1000;
+            results = results.filter(ep => ep.releaseDate && new Date(ep.releaseDate).getTime() >= afterMs);
+          }
+          resolve({ results });
+        } catch { resolve({ results: [] }); }
+      });
+    }).on("error", () => resolve({ results: [] }));
+  });
+}
+
 async function searchPodcasts(query, { publishedAfter = null } = {}) {
-  // Use PodcastIndex if available, fall back to Listen Notes
-  if (PODCASTINDEX_KEY && PODCASTINDEX_SECRET) {
-    return searchPodcastIndex(query, { publishedAfter });
-  } else if (LISTEN_NOTES_KEY) {
-    return searchListenNotes(query, { publishedAfter });
-  }
-  return { results: [] };
+  // iTunes is free and needs no API key — use it as primary
+  return searchITunes(query, { publishedAfter });
 }
 
 async function searchPodcastIndex(query, { publishedAfter = null } = {}) {
@@ -496,110 +513,32 @@ Rules:
     if (recentBias) console.log(`[playlist] Recency bias: on, after ${publishedAfterYear}`);
     console.log(`[playlist] Claude generated ${queries.length} search queries`);
 
-    // STEP 2: Search for episodes
+    // STEP 2: Search for episodes via iTunes
     const allEpisodes = new Map(); // deduplicate by episode ID
-    const usePodcastIndex = !!(PODCASTINDEX_KEY && PODCASTINDEX_SECRET);
-    const useListenNotes = !!LISTEN_NOTES_KEY;
-
-    if (!usePodcastIndex && !useListenNotes) {
-      console.log("[playlist] No podcast search API configured");
-    }
 
     for (const query of queries) {
-      if (!usePodcastIndex && !useListenNotes) break;
       console.log(`[search] "${query}"`);
       try {
-        if (usePodcastIndex) {
-          // PodcastIndex: search episodes directly
-          const crypto = require("crypto");
-          const apiHeaderTime = Math.floor(Date.now() / 1000);
-          const hash = crypto.createHash("sha1")
-            .update(PODCASTINDEX_KEY + PODCASTINDEX_SECRET + apiHeaderTime)
-            .digest("hex");
-          const sq = encodeURIComponent(query.slice(0, 150));
-          let epUrl = `https://api.podcastindex.org/api/1.0/search/byterm?q=${sq}&max=5`;
-
-          const piResp = await new Promise((resolve) => {
-            https.get(epUrl, {
-              headers: {
-                "User-Agent": "PodCurious/1.0",
-                "X-Auth-Key": PODCASTINDEX_KEY,
-                "X-Auth-Date": String(apiHeaderTime),
-                "Authorization": hash,
-              }
-            }, (r) => {
-              let d = ""; r.on("data", c => d += c);
-              r.on("end", () => { try { resolve(JSON.parse(d)); } catch { resolve({ feeds: [] }); } });
-            }).on("error", () => resolve({ feeds: [] }));
-          });
-
-          // PodcastIndex search/byterm returns feeds — get recent episodes from each feed
-          const feeds = (piResp.feeds || []).slice(0, 2);
-          for (const feed of feeds) {
-            if (!feed.id) continue;
-            // Fetch recent episodes from this feed
-            const apiHeaderTime2 = Math.floor(Date.now() / 1000);
-            const hash2 = crypto.createHash("sha1")
-              .update(PODCASTINDEX_KEY + PODCASTINDEX_SECRET + apiHeaderTime2)
-              .digest("hex");
-            let epFeedUrl = `https://api.podcastindex.org/api/1.0/episodes/byfeedid?id=${feed.id}&max=3`;
-            if (publishedAfter) epFeedUrl += `&since=${publishedAfter}`;
-
-            const epResp = await new Promise((resolve) => {
-              https.get(epFeedUrl, {
-                headers: {
-                  "User-Agent": "PodCurious/1.0",
-                  "X-Auth-Key": PODCASTINDEX_KEY,
-                  "X-Auth-Date": String(apiHeaderTime2),
-                  "Authorization": hash2,
-                }
-              }, (r) => {
-                let d = ""; r.on("data", c => d += c);
-                r.on("end", () => { try { resolve(JSON.parse(d)); } catch { resolve({ items: [] }); } });
-              }).on("error", () => resolve({ items: [] }));
+        const itResp = await searchITunes(query, { publishedAfter });
+        for (const ep of (itResp.results || []).slice(0, 4)) {
+          const epId = String(ep.trackId);
+          if (epId && !allEpisodes.has(epId)) {
+            const durationMin = ep.trackTimeMillis ? Math.round(ep.trackTimeMillis / 60000) : null;
+            const pubDate = ep.releaseDate ? new Date(ep.releaseDate).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" }) : null;
+            allEpisodes.set(epId, {
+              listenNotesId: null,
+              listenNotesUrl: ep.trackViewUrl || null,
+              audioUrl: ep.episodeUrl || null,
+              listenNotesImage: ep.artworkUrl600 || ep.artworkUrl160 || null,
+              lnTitle: ep.trackName || "",
+              lnDescription: (ep.description || ep.shortDescription || "").replace(/<[^>]*>/g, "").slice(0, 300),
+              lnPodcast: ep.collectionName || "",
+              lnPodcastImage: ep.artworkUrl600 || null,
+              lnPublisher: ep.artistName || null,
+              lnPubDate: pubDate,
+              lnAudioLength: durationMin,
+              searchQuery: query,
             });
-
-            for (const ep of (epResp.items || []).slice(0, 3)) {
-              const epId = String(ep.id);
-              if (!allEpisodes.has(epId)) {
-                allEpisodes.set(epId, {
-                  listenNotesId: null,
-                  listenNotesUrl: null,
-                  audioUrl: ep.enclosureUrl || null,
-                  listenNotesImage: ep.image || feed.image || null,
-                  lnTitle: ep.title || "",
-                  lnDescription: (ep.description || "").replace(/<[^>]*>/g, "").slice(0, 300),
-                  lnPodcast: feed.title || "",
-                  lnPodcastImage: feed.image || null,
-                  lnPublisher: feed.author || null,
-                  lnPubDate: ep.datePublished ? new Date(ep.datePublished * 1000).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" }) : null,
-                  lnAudioLength: ep.duration ? Math.round(ep.duration / 60) : null,
-                  searchQuery: query,
-                });
-              }
-            }
-          }
-        } else if (useListenNotes) {
-          const lnResp = await searchListenNotes(query, { sortByDate: recentBias, publishedAfter });
-          if (lnResp.results) {
-            for (const r of lnResp.results.slice(0, 3)) {
-              if (r.id && !allEpisodes.has(r.id)) {
-                allEpisodes.set(r.id, {
-                  listenNotesId: r.id,
-                  listenNotesUrl: r.listennotes_url || null,
-                  audioUrl: r.audio || null,
-                  listenNotesImage: r.image || r.thumbnail || null,
-                  lnTitle: r.title_original || "",
-                  lnDescription: (r.description_original || "").replace(/<[^>]*>/g, "").slice(0, 300),
-                  lnPodcast: r.podcast?.title_original || "",
-                  lnPodcastImage: r.podcast?.image || r.podcast?.thumbnail || null,
-                  lnPublisher: r.podcast?.publisher_original || null,
-                  lnPubDate: r.pub_date_ms ? new Date(r.pub_date_ms).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" }) : null,
-                  lnAudioLength: r.audio_length_sec ? Math.round(r.audio_length_sec / 60) : null,
-                  searchQuery: query,
-                });
-              }
-            }
           }
         }
       } catch (err) {
@@ -722,9 +661,7 @@ server.listen(PORT, "0.0.0.0", async () => {
   console.log(`\n  🎧 Pod Curious running at http://localhost:${PORT}`);
   console.log(`  📱 On your phone: http://0.0.0.0:${PORT} (use your Mac's IP)`);
   if (!ANTHROPIC_API_KEY) console.log("  ⚠️  No ANTHROPIC_API_KEY set");
-  if (PODCASTINDEX_KEY && PODCASTINDEX_SECRET) console.log("  ✅ PodcastIndex API connected");
-  else if (LISTEN_NOTES_KEY) console.log("  ✅ Listen Notes API connected");
-  else console.log("  ⚠️  No podcast search API configured (set PODCASTINDEX_KEY + PODCASTINDEX_SECRET)");
+  console.log("  ✅ iTunes Search API (no key needed)");
   await connectDB();
   console.log("");
 });
