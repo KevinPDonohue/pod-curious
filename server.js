@@ -7,6 +7,61 @@ const { URL } = require("url");
 const PORT = process.env.PORT || 3000;
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || "";
 const LISTEN_NOTES_KEY = process.env.LISTEN_NOTES_KEY || "";
+const PODCASTINDEX_KEY = process.env.PODCASTINDEX_KEY || "";
+const PODCASTINDEX_SECRET = process.env.PODCASTINDEX_SECRET || "";
+const MONGODB_URI = process.env.MONGODB_URI || "";
+
+// ─── MongoDB ──────────────────────────────────────────────────────────
+let db = null;
+
+async function connectDB() {
+  if (!MONGODB_URI) return;
+  try {
+    const { MongoClient } = require("mongodb");
+    const client = new MongoClient(MONGODB_URI);
+    await client.connect();
+    db = client.db("podcurious");
+    console.log("  ✅ MongoDB connected");
+  } catch (err) {
+    console.error("  ⚠️  MongoDB connection failed:", err.message);
+  }
+}
+
+function randomId(len = 8) {
+  const chars = "abcdefghijkmnpqrstuvwxyz23456789";
+  let id = "";
+  for (let i = 0; i < len; i++) id += chars[Math.floor(Math.random() * chars.length)];
+  return id;
+}
+
+async function savePlaylist(playlist, prompt, location) {
+  if (!db) return null;
+  try {
+    let id = randomId();
+    // Ensure unique ID
+    for (let i = 0; i < 5; i++) {
+      const existing = await db.collection("playlists").findOne({ id });
+      if (!existing) break;
+      id = randomId();
+    }
+    await db.collection("playlists").insertOne({
+      id, prompt, location,
+      ...playlist,
+      createdAt: new Date(),
+    });
+    return id;
+  } catch (err) {
+    console.error("[db] Save failed:", err.message);
+    return null;
+  }
+}
+
+async function getPlaylist(id) {
+  if (!db) return null;
+  try {
+    return await db.collection("playlists").findOne({ id });
+  } catch { return null; }
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────
 
@@ -125,6 +180,34 @@ Your personality: curious, enthusiastic but not over-the-top, well-read, like a 
 
 IMPORTANT: The total duration of playlists matters a lot. Users specify how long they want to listen, and you must build playlists that hit that target. Track running time carefully.`;
 
+// ─── Geo lookup ───────────────────────────────────────────────────────
+
+function getIP(req) {
+  const forwarded = req.headers["x-forwarded-for"];
+  if (forwarded) return forwarded.split(",")[0].trim();
+  return req.socket?.remoteAddress || "unknown";
+}
+
+async function getLocation(ip) {
+  // Skip private/loopback IPs
+  if (!ip || ip === "unknown" || ip.startsWith("127.") || ip.startsWith("::1") || ip.startsWith("10.") || ip.startsWith("192.168.")) {
+    return "local";
+  }
+  return new Promise((resolve) => {
+    https.get(`https://ipapi.co/${ip}/json/`, { headers: { "User-Agent": "PodCurious/1.0" } }, (r) => {
+      let d = ""; r.on("data", c => d += c);
+      r.on("end", () => {
+        try {
+          const data = JSON.parse(d);
+          if (data.city && data.country_name) resolve(`${data.city}, ${data.country_name}`);
+          else if (data.country_name) resolve(data.country_name);
+          else resolve("unknown");
+        } catch { resolve("unknown"); }
+      });
+    }).on("error", () => resolve("unknown"));
+  });
+}
+
 // ─── API Routes ───────────────────────────────────────────────────────
 
 async function handleAnalyze(req, res) {
@@ -132,7 +215,9 @@ async function handleAnalyze(req, res) {
     const { url } = await parseBody(req);
     if (!url) return sendJSON(res, 400, { error: "Missing URL" });
 
-    console.log(`[analyze] Fetching: ${url}`);
+    const ip = getIP(req);
+    const location = await getLocation(ip);
+    console.log(`[analyze] ${location} — fetching: ${url}`);
 
     let podcast = "", episode = "", description = "", image = "";
 
@@ -259,7 +344,9 @@ async function handleChat(req, res) {
     const { messages } = await parseBody(req);
     if (!messages || !messages.length) return sendJSON(res, 400, { error: "No messages" });
 
-    console.log(`[chat] ${messages.length} messages, last: "${messages[messages.length - 1].content.slice(0, 80)}..."`);
+    const ip = getIP(req);
+    const location = await getLocation(ip);
+    console.log(`[chat] ${location} — ${messages.length} messages, last: "${messages[messages.length - 1].content.slice(0, 80)}..."`);
 
     const claudeResp = await callClaude(messages, SYSTEM_PROMPT);
     const text = claudeResp.content?.map(c => c.text || "").join("") || "";
@@ -271,11 +358,83 @@ async function handleChat(req, res) {
   }
 }
 
+async function searchPodcasts(query, { publishedAfter = null } = {}) {
+  // Use PodcastIndex if available, fall back to Listen Notes
+  if (PODCASTINDEX_KEY && PODCASTINDEX_SECRET) {
+    return searchPodcastIndex(query, { publishedAfter });
+  } else if (LISTEN_NOTES_KEY) {
+    return searchListenNotes(query, { publishedAfter });
+  }
+  return { results: [] };
+}
+
+async function searchPodcastIndex(query, { publishedAfter = null } = {}) {
+  const sq = encodeURIComponent(query.slice(0, 150));
+  const apiHeaderTime = Math.floor(Date.now() / 1000);
+  const crypto = require("crypto");
+  const hash = crypto.createHash("sha1")
+    .update(PODCASTINDEX_KEY + PODCASTINDEX_SECRET + apiHeaderTime)
+    .digest("hex");
+
+  let url = `https://api.podcastindex.org/api/1.0/search/byterm?q=${sq}&max=10&fulltext=true`;
+  if (publishedAfter) url += `&since=${publishedAfter}`;
+
+  return new Promise((resolve) => {
+    https.get(url, {
+      headers: {
+        "User-Agent": "PodCurious/1.0",
+        "X-Auth-Key": PODCASTINDEX_KEY,
+        "X-Auth-Date": String(apiHeaderTime),
+        "Authorization": hash,
+      }
+    }, (r) => {
+      let d = ""; r.on("data", c => d += c);
+      r.on("end", () => {
+        try {
+          const parsed = JSON.parse(d);
+          // PodcastIndex returns feeds, not episodes — use episode search instead
+          // Map to a common format
+          const feeds = parsed.feeds || [];
+          resolve({ _feeds: feeds, results: [] });
+        } catch { resolve({ results: [] }); }
+      });
+    }).on("error", () => resolve({ results: [] }));
+  });
+}
+
+async function searchPodcastIndexEpisodes(query, { publishedAfter = null } = {}) {
+  const sq = encodeURIComponent(query.slice(0, 150));
+  const apiHeaderTime = Math.floor(Date.now() / 1000);
+  const crypto = require("crypto");
+  const hash = crypto.createHash("sha1")
+    .update(PODCASTINDEX_KEY + PODCASTINDEX_SECRET + apiHeaderTime)
+    .digest("hex");
+
+  let url = `https://api.podcastindex.org/api/1.0/search/byterm?q=${sq}&max=5`;
+  if (publishedAfter) url += `&since=${publishedAfter}`;
+
+  return new Promise((resolve) => {
+    https.get(url, {
+      headers: {
+        "User-Agent": "PodCurious/1.0",
+        "X-Auth-Key": PODCASTINDEX_KEY,
+        "X-Auth-Date": String(apiHeaderTime),
+        "Authorization": hash,
+      }
+    }, (r) => {
+      let d = ""; r.on("data", c => d += c);
+      r.on("end", () => {
+        try { resolve(JSON.parse(d)); } catch { resolve({ items: [] }); }
+      });
+    }).on("error", () => resolve({ items: [] }));
+  });
+}
+
 async function searchListenNotes(query, { sortByDate = false, publishedAfter = null } = {}) {
   const sq = encodeURIComponent(query.slice(0, 150));
   let lnUrl = `https://listen-api.listennotes.com/api/v2/search?q=${sq}&type=episode&sort_by_date=${sortByDate ? 1 : 0}&len_min=10`;
   if (publishedAfter) lnUrl += `&published_after=${publishedAfter}`;
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve) => {
     https.get(lnUrl, { headers: { "X-ListenAPI-Key": LISTEN_NOTES_KEY } }, (r) => {
       let d = ""; r.on("data", c => d += c);
       r.on("end", () => { try { resolve(JSON.parse(d)); } catch { resolve({ results: [] }); } });
@@ -288,7 +447,9 @@ async function handlePlaylist(req, res) {
     const { prompt, durationMinutes } = await parseBody(req);
     if (!prompt) return sendJSON(res, 400, { error: "Missing prompt" });
 
-    console.log(`[playlist] Generating for: "${prompt.slice(0, 80)}..." (${durationMinutes} min)`);
+    const ip = getIP(req);
+    const location = await getLocation(ip);
+    console.log(`[playlist] ${location} — generating for: "${prompt.slice(0, 80)}..." (${durationMinutes} min)`);
 
     // STEP 1: Ask Claude for search queries, not episode titles
     const queryPrompt = `Based on the user's request, generate search queries to find relevant podcast episodes.
@@ -335,31 +496,109 @@ Rules:
     if (recentBias) console.log(`[playlist] Recency bias: on, after ${publishedAfterYear}`);
     console.log(`[playlist] Claude generated ${queries.length} search queries`);
 
-    // STEP 2: Search Listen Notes for each query, collect all results
+    // STEP 2: Search for episodes
     const allEpisodes = new Map(); // deduplicate by episode ID
+    const usePodcastIndex = !!(PODCASTINDEX_KEY && PODCASTINDEX_SECRET);
+    const useListenNotes = !!LISTEN_NOTES_KEY;
+
+    if (!usePodcastIndex && !useListenNotes) {
+      console.log("[playlist] No podcast search API configured");
+    }
 
     for (const query of queries) {
-      if (!LISTEN_NOTES_KEY) break;
+      if (!usePodcastIndex && !useListenNotes) break;
       console.log(`[search] "${query}"`);
       try {
-        const lnResp = await searchListenNotes(query, { sortByDate: recentBias, publishedAfter });
-        if (lnResp.results) {
-          for (const r of lnResp.results.slice(0, 3)) { // top 3 per query
-            if (r.id && !allEpisodes.has(r.id)) {
-              allEpisodes.set(r.id, {
-                listenNotesId: r.id,
-                listenNotesUrl: r.listennotes_url || null,
-                listenNotesAudio: r.audio || null,
-                listenNotesImage: r.image || r.thumbnail || null,
-                lnTitle: r.title_original || "",
-                lnDescription: (r.description_original || "").replace(/<[^>]*>/g, "").slice(0, 300),
-                lnPodcast: r.podcast?.title_original || "",
-                lnPodcastImage: r.podcast?.image || r.podcast?.thumbnail || null,
-                lnPublisher: r.podcast?.publisher_original || null,
-                lnPubDate: r.pub_date_ms ? new Date(r.pub_date_ms).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" }) : null,
-                lnAudioLength: r.audio_length_sec ? Math.round(r.audio_length_sec / 60) : null,
-                searchQuery: query,
-              });
+        if (usePodcastIndex) {
+          // PodcastIndex: search episodes directly
+          const crypto = require("crypto");
+          const apiHeaderTime = Math.floor(Date.now() / 1000);
+          const hash = crypto.createHash("sha1")
+            .update(PODCASTINDEX_KEY + PODCASTINDEX_SECRET + apiHeaderTime)
+            .digest("hex");
+          const sq = encodeURIComponent(query.slice(0, 150));
+          let epUrl = `https://api.podcastindex.org/api/1.0/search/byterm?q=${sq}&max=5`;
+
+          const piResp = await new Promise((resolve) => {
+            https.get(epUrl, {
+              headers: {
+                "User-Agent": "PodCurious/1.0",
+                "X-Auth-Key": PODCASTINDEX_KEY,
+                "X-Auth-Date": String(apiHeaderTime),
+                "Authorization": hash,
+              }
+            }, (r) => {
+              let d = ""; r.on("data", c => d += c);
+              r.on("end", () => { try { resolve(JSON.parse(d)); } catch { resolve({ feeds: [] }); } });
+            }).on("error", () => resolve({ feeds: [] }));
+          });
+
+          // PodcastIndex search/byterm returns feeds — get recent episodes from each feed
+          const feeds = (piResp.feeds || []).slice(0, 2);
+          for (const feed of feeds) {
+            if (!feed.id) continue;
+            // Fetch recent episodes from this feed
+            const apiHeaderTime2 = Math.floor(Date.now() / 1000);
+            const hash2 = crypto.createHash("sha1")
+              .update(PODCASTINDEX_KEY + PODCASTINDEX_SECRET + apiHeaderTime2)
+              .digest("hex");
+            let epFeedUrl = `https://api.podcastindex.org/api/1.0/episodes/byfeedid?id=${feed.id}&max=3`;
+            if (publishedAfter) epFeedUrl += `&since=${publishedAfter}`;
+
+            const epResp = await new Promise((resolve) => {
+              https.get(epFeedUrl, {
+                headers: {
+                  "User-Agent": "PodCurious/1.0",
+                  "X-Auth-Key": PODCASTINDEX_KEY,
+                  "X-Auth-Date": String(apiHeaderTime2),
+                  "Authorization": hash2,
+                }
+              }, (r) => {
+                let d = ""; r.on("data", c => d += c);
+                r.on("end", () => { try { resolve(JSON.parse(d)); } catch { resolve({ items: [] }); } });
+              }).on("error", () => resolve({ items: [] }));
+            });
+
+            for (const ep of (epResp.items || []).slice(0, 3)) {
+              const epId = String(ep.id);
+              if (!allEpisodes.has(epId)) {
+                allEpisodes.set(epId, {
+                  listenNotesId: null,
+                  listenNotesUrl: null,
+                  audioUrl: ep.enclosureUrl || null,
+                  listenNotesImage: ep.image || feed.image || null,
+                  lnTitle: ep.title || "",
+                  lnDescription: (ep.description || "").replace(/<[^>]*>/g, "").slice(0, 300),
+                  lnPodcast: feed.title || "",
+                  lnPodcastImage: feed.image || null,
+                  lnPublisher: feed.author || null,
+                  lnPubDate: ep.datePublished ? new Date(ep.datePublished * 1000).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" }) : null,
+                  lnAudioLength: ep.duration ? Math.round(ep.duration / 60) : null,
+                  searchQuery: query,
+                });
+              }
+            }
+          }
+        } else if (useListenNotes) {
+          const lnResp = await searchListenNotes(query, { sortByDate: recentBias, publishedAfter });
+          if (lnResp.results) {
+            for (const r of lnResp.results.slice(0, 3)) {
+              if (r.id && !allEpisodes.has(r.id)) {
+                allEpisodes.set(r.id, {
+                  listenNotesId: r.id,
+                  listenNotesUrl: r.listennotes_url || null,
+                  audioUrl: r.audio || null,
+                  listenNotesImage: r.image || r.thumbnail || null,
+                  lnTitle: r.title_original || "",
+                  lnDescription: (r.description_original || "").replace(/<[^>]*>/g, "").slice(0, 300),
+                  lnPodcast: r.podcast?.title_original || "",
+                  lnPodcastImage: r.podcast?.image || r.podcast?.thumbnail || null,
+                  lnPublisher: r.podcast?.publisher_original || null,
+                  lnPubDate: r.pub_date_ms ? new Date(r.pub_date_ms).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" }) : null,
+                  lnAudioLength: r.audio_length_sec ? Math.round(r.audio_length_sec / 60) : null,
+                  searchQuery: query,
+                });
+              }
             }
           }
         }
@@ -369,7 +608,7 @@ Rules:
     }
 
     const candidates = Array.from(allEpisodes.values());
-    console.log(`[playlist] Found ${candidates.length} unique episodes from Listen Notes`);
+    console.log(`[playlist] Found ${candidates.length} unique episodes`);
 
     if (candidates.length === 0) {
       return sendJSON(res, 200, {
@@ -437,13 +676,18 @@ Just return the episode numbers from the list above. Pick enough to fill ${durat
 
     console.log(`[playlist] Final: ${finalEpisodes.length} episodes, ~${totalMinutes} min`);
 
-    sendJSON(res, 200, {
+    const playlistData = {
       playlistTitle: queryData.playlistTitle || "Podcast Playlist",
       playlistDescription: queryData.playlistDescription || "",
       episodes: finalEpisodes,
       totalMinutes,
       note: curateData.note || "",
-    });
+    };
+
+    const shareId = await savePlaylist(playlistData, prompt, location);
+    if (shareId) console.log(`[playlist] Saved as ${shareId}`);
+
+    sendJSON(res, 200, { ...playlistData, shareId });
   } catch (err) {
     console.error("[playlist] Error:", err.message);
     sendJSON(res, 500, { error: "Failed to generate playlist: " + err.message });
@@ -461,14 +705,26 @@ const server = http.createServer(async (req, res) => {
   if (req.method === "POST" && pathname === "/api/analyze") return handleAnalyze(req, res);
   if (req.method === "POST" && pathname === "/api/chat") return handleChat(req, res);
   if (req.method === "POST" && pathname === "/api/playlist") return handlePlaylist(req, res);
+
+  // Serve shared playlist page
+  if (req.method === "GET" && pathname.startsWith("/p/")) {
+    const id = pathname.slice(3);
+    const playlist = await getPlaylist(id);
+    if (!playlist) { res.writeHead(404); res.end("Playlist not found"); return; }
+    sendJSON(res, 200, playlist);
+    return;
+  }
+
   serveStatic(res, path.join(__dirname, "public", pathname === "/" ? "index.html" : pathname));
 });
 
-server.listen(PORT, "0.0.0.0", () => {
+server.listen(PORT, "0.0.0.0", async () => {
   console.log(`\n  🎧 Pod Curious running at http://localhost:${PORT}`);
   console.log(`  📱 On your phone: http://0.0.0.0:${PORT} (use your Mac's IP)`);
   if (!ANTHROPIC_API_KEY) console.log("  ⚠️  No ANTHROPIC_API_KEY set");
-  if (LISTEN_NOTES_KEY) console.log("  ✅ Listen Notes API connected");
-  else console.log("  ℹ️  No LISTEN_NOTES_KEY — using platform search links");
+  if (PODCASTINDEX_KEY && PODCASTINDEX_SECRET) console.log("  ✅ PodcastIndex API connected");
+  else if (LISTEN_NOTES_KEY) console.log("  ✅ Listen Notes API connected");
+  else console.log("  ⚠️  No podcast search API configured (set PODCASTINDEX_KEY + PODCASTINDEX_SECRET)");
+  await connectDB();
   console.log("");
 });

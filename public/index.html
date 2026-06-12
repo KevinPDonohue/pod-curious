@@ -159,6 +159,7 @@
     }
     .ep-player-wrap.open { max-height: 220px; padding: 12px 16px; }
     .ep-player-wrap iframe { width: 100%; height: 170px; border: none; border-radius: 10px; }
+    .ep-player-wrap audio { width: 100%; }
 
     .running-time { display: flex; justify-content: space-between; padding: 12px 16px; border-top: 1px solid var(--border-light); margin-top: 8px; }
     .rt-label { font: 400 12px var(--sans); color: var(--text-dim); }
@@ -169,6 +170,14 @@
       border: 1.5px solid var(--border); background: transparent;
       color: var(--text-dim); font: 400 13px var(--sans); cursor: pointer;
     }
+    .btn-share {
+      display: flex; align-items: center; gap: 8px; margin: 16px auto 0;
+      padding: 12px 24px; border-radius: 999px; border: 1.5px solid var(--accent);
+      background: var(--accent-bg); color: var(--accent);
+      font: 500 14px var(--sans); cursor: pointer; transition: all 0.2s;
+    }
+    .btn-share:hover { background: var(--accent); color: #fff; }
+    .btn-share.copied { background: var(--green); border-color: var(--green); color: #fff; }
 
     .guidance-msg {
       padding: 20px; margin-bottom: 20px; border-radius: 14px;
@@ -543,8 +552,10 @@ async function generatePlaylist(extraRefinement) {
     });
     if (!resp.ok) throw new Error((await resp.json()).error);
     const playlist = await resp.json();
+    state.shareId = playlist.shareId || null;
     renderPlaylist(playlist);
     showGuidance(playlist);
+    renderShareButton();
     showStep(3);
   } catch (err) {
     alert("Couldn't generate playlist: " + err.message);
@@ -616,11 +627,13 @@ function renderPlaylist(pl) {
     const pubDate = ep.lnPubDate;
     const realDuration = ep.lnAudioLength || ep.duration;
 
-    const linksHtml = hasEmbed
-      ? `<button class="ep-listen-btn" onclick="event.stopPropagation(); togglePlayer('${ep.listenNotesId}', this)"><span class="listen-icon">▶</span> Listen</button>`
+    const hasAudio = !!ep.audioUrl;
+    const playerId = ep.listenNotesId || `pi-${i}`;
+    const linksHtml = (hasEmbed || hasAudio)
+      ? `<button class="ep-listen-btn" onclick="event.stopPropagation(); togglePlayer('${playerId}', this, ${JSON.stringify(ep.audioUrl || null)}, ${JSON.stringify(ep.listenNotesId || null)})"><span class="listen-icon">▶</span> Listen</button>`
       : "";
 
-    const playerHtml = hasEmbed ? `<div class="ep-player-wrap" id="player-${ep.listenNotesId}"></div>` : "";
+    const playerHtml = (hasEmbed || hasAudio) ? `<div class="ep-player-wrap" id="player-${playerId}"></div>` : "";
 
     // Build metadata tags
     let metaTags = "";
@@ -680,12 +693,14 @@ function renderPlaylist(pl) {
 
 let currentPlayerId = null;
 
-function togglePlayer(episodeId, btn) {
-  const wrap = document.getElementById("player-" + episodeId);
+function togglePlayer(playerId, btn, audioUrl, listenNotesId) {
+  const wrap = document.getElementById("player-" + playerId);
   if (!wrap) return;
 
   // If clicking the same episode, toggle it off
-  if (currentPlayerId === episodeId) {
+  if (currentPlayerId === playerId) {
+    const audio = wrap.querySelector("audio");
+    if (audio) audio.pause();
     wrap.classList.remove("open");
     wrap.innerHTML = "";
     btn.classList.remove("playing");
@@ -697,22 +712,30 @@ function togglePlayer(episodeId, btn) {
   // Close any currently open player
   if (currentPlayerId) {
     const oldWrap = document.getElementById("player-" + currentPlayerId);
-    if (oldWrap) { oldWrap.classList.remove("open"); oldWrap.innerHTML = ""; }
-    // Reset old button
+    if (oldWrap) {
+      const oldAudio = oldWrap.querySelector("audio");
+      if (oldAudio) oldAudio.pause();
+      oldWrap.classList.remove("open");
+      oldWrap.innerHTML = "";
+    }
     document.querySelectorAll(".ep-listen-btn.playing").forEach(b => {
       b.classList.remove("playing");
       b.querySelector(".listen-icon").textContent = "▶";
     });
   }
 
-  // Open new player
-  wrap.innerHTML = `<iframe src="https://www.listennotes.com/embedded/e/${episodeId}/" loading="lazy" allow="autoplay"></iframe>`;
+  // Open new player — prefer native audio, fall back to Listen Notes iframe
+  if (audioUrl) {
+    wrap.innerHTML = `<audio controls autoplay style="width:100%;border-radius:8px;margin:4px 0;" src="${audioUrl}"></audio>`;
+  } else if (listenNotesId) {
+    wrap.innerHTML = `<iframe src="https://www.listennotes.com/embedded/e/${listenNotesId}/" loading="lazy" allow="autoplay"></iframe>`;
+  }
+
   wrap.classList.add("open");
   btn.classList.add("playing");
   btn.querySelector(".listen-icon").textContent = "⏸";
-  currentPlayerId = episodeId;
+  currentPlayerId = playerId;
 
-  // Scroll the player into view
   setTimeout(() => wrap.scrollIntoView({ behavior: "smooth", block: "nearest" }), 300);
 }
 
@@ -727,8 +750,39 @@ function showStep(n) {
   document.getElementById("dot3").className = `step-dot ${n >= 3 ? "active" : ""}`;
 }
 
+function renderShareButton() {
+  // Remove any existing share button
+  const existing = document.getElementById("shareBtn");
+  if (existing) existing.remove();
+
+  if (!state.shareId) return;
+
+  const btn = document.createElement("button");
+  btn.id = "shareBtn";
+  btn.className = "btn-share";
+  btn.innerHTML = "🔗 Copy shareable link";
+  btn.onclick = () => {
+    const url = window.location.origin + "/p/" + state.shareId;
+    navigator.clipboard.writeText(url).then(() => {
+      btn.textContent = "✓ Copied!";
+      btn.classList.add("copied");
+      setTimeout(() => {
+        btn.innerHTML = "🔗 Copy shareable link";
+        btn.classList.remove("copied");
+      }, 2500);
+    }).catch(() => {
+      // Fallback for older browsers
+      prompt("Copy this link:", url);
+    });
+  };
+
+  // Insert before the "Start over" button
+  const startOverBtn = document.querySelector(".btn-start-over");
+  startOverBtn.parentNode.insertBefore(btn, startOverBtn);
+}
+
 function startOver() {
-  state = { analysis: null, chatHistory: [], uiMessages: [], selectedDuration: null, playlistPrompt: "", refinements: [] };
+  state = { analysis: null, chatHistory: [], uiMessages: [], selectedDuration: null, playlistPrompt: "", refinements: [], shareId: null };
   linkInput.value = "";
   chatInput.value = "";
   document.getElementById("chatMessages").innerHTML = "";
