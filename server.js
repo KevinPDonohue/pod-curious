@@ -641,6 +641,14 @@ const server = http.createServer(async (req, res) => {
     return res.end();
   }
   const pathname = new URL(req.url, `http://localhost:${PORT}`).pathname;
+  if (req.method === "GET" && pathname === "/api/health") {
+    sendJSON(res, 200, {
+      mongodb: db ? "connected" : "not connected",
+      anthropic: !!ANTHROPIC_API_KEY,
+      podcastSearch: "itunes",
+    });
+    return;
+  }
   if (req.method === "POST" && pathname === "/api/analyze") return handleAnalyze(req, res);
   if (req.method === "POST" && pathname === "/api/chat") return handleChat(req, res);
   if (req.method === "POST" && pathname === "/api/playlist") return handlePlaylist(req, res);
