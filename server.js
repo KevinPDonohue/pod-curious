@@ -641,6 +641,20 @@ const server = http.createServer(async (req, res) => {
     return res.end();
   }
   const pathname = new URL(req.url, `http://localhost:${PORT}`).pathname;
+  if (req.method === "GET" && pathname === "/api/debug-itunes") {
+    const raw = await searchITunes("history podcast");
+    const ep = raw.results?.[0];
+    sendJSON(res, 200, {
+      totalResults: raw.results?.length,
+      firstEpisode: ep ? {
+        trackName: ep.trackName,
+        episodeUrl: ep.episodeUrl || null,
+        trackViewUrl: ep.trackViewUrl || null,
+        collectionName: ep.collectionName,
+      } : null,
+    });
+    return;
+  }
   if (req.method === "GET" && pathname === "/api/health") {
     let mongoStatus = db ? "connected" : "not connected";
     let mongoError = null;
