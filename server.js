@@ -642,8 +642,26 @@ const server = http.createServer(async (req, res) => {
   }
   const pathname = new URL(req.url, `http://localhost:${PORT}`).pathname;
   if (req.method === "GET" && pathname === "/api/health") {
+    let mongoStatus = db ? "connected" : "not connected";
+    let mongoError = null;
+    if (!db && MONGODB_URI) {
+      // Try connecting now and report the error
+      try {
+        const { MongoClient } = require("mongodb");
+        const testClient = new MongoClient(MONGODB_URI, { serverSelectionTimeoutMS: 5000 });
+        await testClient.connect();
+        await testClient.db("admin").command({ ping: 1 });
+        await testClient.close();
+        mongoStatus = "reachable but not initialized";
+      } catch (err) {
+        mongoError = err.message;
+      }
+    }
     sendJSON(res, 200, {
-      mongodb: db ? "connected" : "not connected",
+      mongodb: mongoStatus,
+      mongodbUriSet: !!MONGODB_URI,
+      mongodbUriPrefix: MONGODB_URI ? MONGODB_URI.slice(0, 30) + "..." : null,
+      mongoError,
       anthropic: !!ANTHROPIC_API_KEY,
       podcastSearch: "itunes",
     });
