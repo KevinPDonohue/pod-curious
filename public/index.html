@@ -630,11 +630,16 @@ function renderPlaylist(pl) {
 
     const hasAudio = !!ep.audioUrl;
     const playerId = ep.listenNotesId || `pi-${i}`;
-    const linksHtml = (hasEmbed || hasAudio)
-      ? `<button class="ep-listen-btn" onclick="event.stopPropagation(); togglePlayer('${playerId}', this, ${JSON.stringify(ep.audioUrl || null)}, ${JSON.stringify(ep.listenNotesId || null)})"><span class="listen-icon">▶</span> Listen</button>`
-      : "";
 
-    const playerHtml = (hasEmbed || hasAudio) ? `<div class="ep-player-wrap" id="player-${playerId}"></div>` : "";
+    let linksHtml = "";
+    if (hasEmbed) {
+      linksHtml = `<button class="ep-listen-btn" onclick="event.stopPropagation(); togglePlayer('${playerId}', this, null, ${JSON.stringify(ep.listenNotesId)})"><span class="listen-icon">▶</span> Listen</button>`;
+    } else if (hasAudio) {
+      // Open audio directly in new tab — most reliable cross-browser approach
+      linksHtml = `<a class="ep-listen-btn" href="${ep.audioUrl.replace(/"/g,'&quot;')}" target="_blank" rel="noopener"><span class="listen-icon">▶</span> Listen</a>`;
+    }
+
+    const playerHtml = hasEmbed ? `<div class="ep-player-wrap" id="player-${playerId}"></div>` : "";
 
     // Build metadata tags
     let metaTags = "";
