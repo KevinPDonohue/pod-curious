@@ -725,9 +725,13 @@ function togglePlayer(playerId, btn, audioUrl, listenNotesId) {
     });
   }
 
-  // Open new player — prefer native audio, fall back to Listen Notes iframe
+  // Open new player
   if (audioUrl) {
-    wrap.innerHTML = `<audio controls autoplay style="width:100%;border-radius:8px;margin:4px 0;" src="${audioUrl}"></audio>`;
+    const escapedUrl = audioUrl.replace(/"/g, "&quot;");
+    wrap.innerHTML = `
+      <audio controls style="width:100%;border-radius:8px;margin:4px 0;" src="${escapedUrl}"
+        onerror="this.parentNode.innerHTML='<div style=\'padding:12px;background:var(--bg-warm);border-radius:8px;font:300 13px var(--sans);color:var(--text-mid)\'>⚠️ Audio blocked by podcast host. <a href=\'${escapedUrl}\' target=\'_blank\' style=\'color:var(--accent)\'>Open audio directly ↗</a></div>'">
+      </audio>`;
   } else if (listenNotesId) {
     wrap.innerHTML = `<iframe src="https://www.listennotes.com/embedded/e/${listenNotesId}/" loading="lazy" allow="autoplay"></iframe>`;
   }
