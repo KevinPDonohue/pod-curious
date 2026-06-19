@@ -118,7 +118,7 @@ function decodeEntities(str) {
 
 function callClaude(messages, system, maxTokens = 2000) {
   return new Promise((resolve, reject) => {
-    const payload = { model: "claude-sonnet-4-20250514", max_tokens: maxTokens, messages };
+    const payload = { model: "claude-sonnet-4-6", max_tokens: maxTokens, messages };
     if (system) payload.system = system;
     const body = JSON.stringify(payload);
     const req = https.request({

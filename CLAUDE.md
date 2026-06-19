@@ -43,7 +43,7 @@ Runs on `http://localhost:3000` by default. Set `PORT` to override.
 - **Spotify URLs** get special handling: tries Listen Notes search first, falls back to Spotify embed page, then oembed API
 - **Episode deduplication** is done by Listen Notes episode ID (`Map` keyed on `r.id`)
 - **Embedded player** uses `https://www.listennotes.com/embedded/e/{episodeId}/` iframes; only one plays at a time
-- **Claude model**: `claude-sonnet-4-20250514` (called directly via HTTPS, no SDK)
+- **Claude model**: `claude-sonnet-4-6` (called directly via HTTPS, no SDK)
 - All Claude calls expect raw JSON responses (no markdown fences); the server strips fences and falls back to regex extraction if needed
 - Frontend state is a plain JS object (`state`) with no framework
 
