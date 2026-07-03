@@ -109,6 +109,26 @@ function extractMetadata(html) {
   };
 }
 
+// Extracts the first complete {...} JSON object from a string using bracket counting.
+// Handles cases where Claude adds text before or after the JSON block.
+function extractFirstJson(text) {
+  const start = text.indexOf("{");
+  if (start === -1) return null;
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i];
+    if (escape) { escape = false; continue; }
+    if (ch === "\\" && inString) { escape = true; continue; }
+    if (ch === '"') { inString = !inString; continue; }
+    if (inString) continue;
+    if (ch === "{") depth++;
+    else if (ch === "}") { depth--; if (depth === 0) return text.slice(start, i + 1); }
+  }
+  return null;
+}
+
 function stripBadUnicode(str) {
   if (typeof str !== "string") return str;
   // Walk char by char to remove lone surrogates (unpaired high or low surrogates)
@@ -352,7 +372,7 @@ Your response must be exactly this JSON structure and nothing else:
 
     let analysis;
     try {
-      analysis = JSON.parse(clean);
+      analysis = JSON.parse(extractFirstJson(clean) || clean);
     } catch {
       const jsonMatch = clean.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
@@ -535,10 +555,10 @@ Rules:
     const queryText = queryResp.content?.map(c => c.text || "").join("") || "";
     let queryData;
     try {
-      queryData = JSON.parse(queryText.replace(/```json|```/g, "").trim());
+      const qJson = extractFirstJson(queryText);
+      queryData = JSON.parse(qJson || queryText.replace(/```json|```/g, "").trim());
     } catch {
-      const m = queryText.match(/\{[\s\S]*\}/);
-      queryData = m ? JSON.parse(m[0]) : { queries: [], playlistTitle: "Podcast Playlist", playlistDescription: "" };
+      queryData = { queries: [], playlistTitle: "Podcast Playlist", playlistDescription: "" };
     }
 
     const queries = queryData.queries || [];
@@ -626,10 +646,10 @@ Just return the episode numbers from the list above. Pick enough to fill ${durat
     const curateText = curateResp.content?.map(c => c.text || "").join("") || "";
     let curateData;
     try {
-      curateData = JSON.parse(curateText.replace(/```json|```/g, "").trim());
+      const cJson = extractFirstJson(curateText);
+      curateData = JSON.parse(cJson || curateText.replace(/```json|```/g, "").trim());
     } catch {
-      const m = curateText.match(/\{[\s\S]*\}/);
-      curateData = m ? JSON.parse(m[0]) : { selectedIndices: [], note: "" };
+      curateData = { selectedIndices: [], note: "" };
     }
 
     // Build final playlist from selected indices
