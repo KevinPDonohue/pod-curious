@@ -111,12 +111,26 @@ function extractMetadata(html) {
 
 function stripBadUnicode(str) {
   if (typeof str !== "string") return str;
-  // Remove unpaired surrogates that make JSON.stringify produce invalid JSON
-  return str.replace(/[\uD800-\uDFFF]/g, (ch) => {
-    const code = ch.charCodeAt(0);
-    // Keep valid surrogate pairs; drop lone surrogates
-    return (code >= 0xD800 && code <= 0xDBFF) ? ch : "";
-  }).replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, "");
+  // Walk char by char to remove lone surrogates (unpaired high or low surrogates)
+  // that cause JSON.stringify to emit invalid JSON.
+  let out = "";
+  for (let i = 0; i < str.length; i++) {
+    const code = str.charCodeAt(i);
+    if (code >= 0xD800 && code <= 0xDBFF) {
+      // High surrogate — only keep if followed by a low surrogate
+      const next = str.charCodeAt(i + 1);
+      if (next >= 0xDC00 && next <= 0xDFFF) {
+        out += str[i] + str[i + 1];
+        i++; // skip the low surrogate
+      }
+      // else lone high surrogate — drop it
+    } else if (code >= 0xDC00 && code <= 0xDFFF) {
+      // Lone low surrogate — drop it
+    } else {
+      out += str[i];
+    }
+  }
+  return out;
 }
 
 function sanitizeForJson(obj) {
