@@ -171,11 +171,16 @@ function decodeEntities(str) {
     .replace(/&hellip;/g, "\u2026");
 }
 
-function callClaude(messages, system, maxTokens = 2000) {
+function callClaude(messages, system, maxTokens = 2000, timeoutMs = 45000) {
   return new Promise((resolve, reject) => {
     const payload = { model: "claude-sonnet-4-6", max_tokens: maxTokens, messages };
     if (system) payload.system = system;
     const body = JSON.stringify(sanitizeForJson(payload));
+    let settled = false;
+    const done = (fn, val) => { if (!settled) { settled = true; fn(val); } };
+
+    const timer = setTimeout(() => done(reject, new Error("Claude request timed out")), timeoutMs);
+
     const req = https.request({
       hostname: "api.anthropic.com", path: "/v1/messages", method: "POST",
       headers: {
@@ -186,24 +191,30 @@ function callClaude(messages, system, maxTokens = 2000) {
       let data = "";
       res.on("data", (chunk) => (data += chunk));
       res.on("end", () => {
+        clearTimeout(timer);
         try {
           const parsed = JSON.parse(data);
-          if (parsed.error) { console.error("[claude] Error:", parsed.error.message); reject(new Error(parsed.error.message)); }
-          else resolve(parsed);
-        } catch (e) { console.error("[claude] Raw:", data.slice(0, 300)); reject(new Error("Failed to parse Claude response")); }
+          if (parsed.error) { console.error("[claude] Error:", parsed.error.message); done(reject, new Error(parsed.error.message)); }
+          else done(resolve, parsed);
+        } catch (e) { console.error("[claude] Raw:", data.slice(0, 300)); done(reject, new Error("Failed to parse Claude response")); }
       });
-      res.on("error", reject);
+      res.on("error", (e) => { clearTimeout(timer); done(reject, e); });
     });
-    req.on("error", reject);
+    req.on("error", (e) => { clearTimeout(timer); done(reject, e); });
     req.write(body);
     req.end();
   });
 }
 
-function parseBody(req) {
+function parseBody(req, maxBytes = 1_000_000) {
   return new Promise((resolve, reject) => {
     let body = "";
-    req.on("data", (chunk) => (body += chunk));
+    let size = 0;
+    req.on("data", (chunk) => {
+      size += chunk.length;
+      if (size > maxBytes) { req.destroy(); return reject(new Error("Request body too large")); }
+      body += chunk;
+    });
     req.on("end", () => { try { resolve(JSON.parse(body)); } catch { reject(new Error("Invalid JSON")); } });
     req.on("error", reject);
   });
@@ -249,7 +260,7 @@ async function getLocation(ip) {
     return "local";
   }
   return new Promise((resolve) => {
-    https.get(`https://ipapi.co/${ip}/json/`, { headers: { "User-Agent": "PodCurious/1.0" } }, (r) => {
+    const req = https.get(`https://ipapi.co/${ip}/json/`, { headers: { "User-Agent": "PodCurious/1.0" }, timeout: 3000 }, (r) => {
       let d = ""; r.on("data", c => d += c);
       r.on("end", () => {
         try {
@@ -259,7 +270,10 @@ async function getLocation(ip) {
           else resolve("unknown");
         } catch { resolve("unknown"); }
       });
-    }).on("error", () => resolve("unknown"));
+      r.on("error", () => resolve("unknown"));
+    });
+    req.on("error", () => resolve("unknown"));
+    req.on("timeout", () => { req.destroy(); resolve("unknown"); });
   });
 }
 
@@ -568,36 +582,37 @@ Rules:
     if (recentBias) console.log(`[playlist] Recency bias: on, after ${publishedAfterYear}`);
     console.log(`[playlist] Claude generated ${queries.length} search queries`);
 
-    // STEP 2: Search for episodes via iTunes
+    // STEP 2: Search for episodes via iTunes — run all queries in parallel
     const allEpisodes = new Map(); // deduplicate by episode ID
 
-    for (const query of queries) {
-      console.log(`[search] "${query}"`);
-      try {
-        const itResp = await searchITunes(query, { publishedAfter });
-        for (const ep of (itResp.results || []).slice(0, 4)) {
-          const epId = String(ep.trackId);
-          if (epId && !allEpisodes.has(epId)) {
-            const durationMin = ep.trackTimeMillis ? Math.round(ep.trackTimeMillis / 60000) : null;
-            const pubDate = ep.releaseDate ? new Date(ep.releaseDate).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" }) : null;
-            allEpisodes.set(epId, {
-              listenNotesId: null,
-              listenNotesUrl: ep.trackViewUrl || null,
-              audioUrl: ep.episodeUrl || null,
-              listenNotesImage: ep.artworkUrl600 || ep.artworkUrl160 || null,
-              lnTitle: ep.trackName || "",
-              lnDescription: (ep.description || ep.shortDescription || "").replace(/<[^>]*>/g, "").slice(0, 300),
-              lnPodcast: ep.collectionName || "",
-              lnPodcastImage: ep.artworkUrl600 || null,
-              lnPublisher: ep.artistName || null,
-              lnPubDate: pubDate,
-              lnAudioLength: durationMin,
-              searchQuery: query,
-            });
-          }
+    const searchResults = await Promise.allSettled(
+      queries.map(query => searchITunes(query, { publishedAfter }).then(r => ({ query, results: r.results || [] })))
+    );
+
+    for (const result of searchResults) {
+      if (result.status !== "fulfilled") continue;
+      const { query, results } = result.value;
+      console.log(`[search] "${query}" → ${results.length} results`);
+      for (const ep of results.slice(0, 4)) {
+        const epId = String(ep.trackId);
+        if (epId && !allEpisodes.has(epId)) {
+          const durationMin = ep.trackTimeMillis ? Math.round(ep.trackTimeMillis / 60000) : null;
+          const pubDate = ep.releaseDate ? new Date(ep.releaseDate).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" }) : null;
+          allEpisodes.set(epId, {
+            listenNotesId: null,
+            listenNotesUrl: ep.trackViewUrl || null,
+            audioUrl: ep.episodeUrl || null,
+            listenNotesImage: ep.artworkUrl600 || ep.artworkUrl160 || null,
+            lnTitle: ep.trackName || "",
+            lnDescription: (ep.description || ep.shortDescription || "").replace(/<[^>]*>/g, "").slice(0, 200),
+            lnPodcast: ep.collectionName || "",
+            lnPodcastImage: ep.artworkUrl600 || null,
+            lnPublisher: ep.artistName || null,
+            lnPubDate: pubDate,
+            lnAudioLength: durationMin,
+            searchQuery: query,
+          });
         }
-      } catch (err) {
-        console.error(`[search] Error for "${query}":`, err.message);
       }
     }
 
@@ -615,8 +630,10 @@ Rules:
     }
 
     // STEP 3: Ask Claude to curate the best episodes from the real results
-    const candidateList = candidates.map((ep, i) => 
-      `${i + 1}. "${ep.lnTitle}" from "${ep.lnPodcast}" (${ep.lnAudioLength || "?"} min) — ${ep.lnDescription.slice(0, 150)}`
+    // Cap at 50 candidates to keep the prompt within a reasonable token budget
+    const cappedCandidates = candidates.slice(0, 50);
+    const candidateList = cappedCandidates.map((ep, i) =>
+      `${i + 1}. "${ep.lnTitle}" from "${ep.lnPodcast}" (${ep.lnAudioLength || "?"} min) — ${ep.lnDescription.slice(0, 120)}`
     ).join("\n");
 
     const curatePrompt = `Here are real podcast episodes found on the topic. Pick the best ones for a ${durationMinutes}-minute playlist.
@@ -654,7 +671,7 @@ Just return the episode numbers from the list above. Pick enough to fill ${durat
 
     // Build final playlist from selected indices
     const selectedEps = (curateData.selectedIndices || [])
-      .map(idx => candidates[idx - 1])
+      .map(idx => cappedCandidates[idx - 1])
       .filter(Boolean);
 
     // Map to the format the frontend expects
@@ -771,6 +788,15 @@ const server = http.createServer(async (req, res) => {
   }
 
   serveStatic(res, path.join(__dirname, "public", pathname === "/" ? "index.html" : pathname));
+});
+
+// ─── Global error guards ──────────────────────────────────────────────
+process.on("uncaughtException", (err) => {
+  console.error("[crash] Uncaught exception:", err.message, err.stack);
+  // Don't exit — keep the server alive
+});
+process.on("unhandledRejection", (reason) => {
+  console.error("[crash] Unhandled rejection:", reason);
 });
 
 server.listen(PORT, "0.0.0.0", async () => {
