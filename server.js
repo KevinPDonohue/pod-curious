@@ -109,6 +109,27 @@ function extractMetadata(html) {
   };
 }
 
+function stripBadUnicode(str) {
+  if (typeof str !== "string") return str;
+  // Remove unpaired surrogates that make JSON.stringify produce invalid JSON
+  return str.replace(/[\uD800-\uDFFF]/g, (ch) => {
+    const code = ch.charCodeAt(0);
+    // Keep valid surrogate pairs; drop lone surrogates
+    return (code >= 0xD800 && code <= 0xDBFF) ? ch : "";
+  }).replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, "");
+}
+
+function sanitizeForJson(obj) {
+  if (typeof obj === "string") return stripBadUnicode(obj);
+  if (Array.isArray(obj)) return obj.map(sanitizeForJson);
+  if (obj && typeof obj === "object") {
+    const out = {};
+    for (const k of Object.keys(obj)) out[k] = sanitizeForJson(obj[k]);
+    return out;
+  }
+  return obj;
+}
+
 function decodeEntities(str) {
   return str.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
     .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&#x27;/g, "'")
@@ -120,7 +141,7 @@ function callClaude(messages, system, maxTokens = 2000) {
   return new Promise((resolve, reject) => {
     const payload = { model: "claude-sonnet-4-6", max_tokens: maxTokens, messages };
     if (system) payload.system = system;
-    const body = JSON.stringify(payload);
+    const body = JSON.stringify(sanitizeForJson(payload));
     const req = https.request({
       hostname: "api.anthropic.com", path: "/v1/messages", method: "POST",
       headers: {
