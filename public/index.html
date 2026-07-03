@@ -487,7 +487,10 @@ async function sendChat() {
   // Show loading
   const loadingId = "loading-" + Date.now();
   const container = document.getElementById("chatMessages");
-  container.innerHTML += `<div class="loading-inline" id="${loadingId}"><div class="dot-pulse"><span></span><span></span><span></span></div> Thinking...</div>`;
+  const loadingEl = document.createElement("div");
+  loadingEl.className = "loading-inline"; loadingEl.id = loadingId;
+  loadingEl.innerHTML = `<div class="dot-pulse"><span></span><span></span><span></span></div> Thinking...`;
+  container.appendChild(loadingEl);
 
   try {
     const resp = await fetch("/api/chat", {
@@ -500,6 +503,8 @@ async function sendChat() {
     document.getElementById(loadingId)?.remove();
     addAssistantMessage(data.reply);
     state.chatHistory.push({ role: "assistant", content: data.reply });
+    // Keep history bounded to avoid hitting context limits
+    if (state.chatHistory.length > 20) state.chatHistory = state.chatHistory.slice(-20);
   } catch (err) {
     document.getElementById(loadingId)?.remove();
     addAssistantMessage("Sorry, something went wrong. Try again?");
@@ -539,7 +544,8 @@ User refinements: ${chatSummary}`;
 }
 
 async function generatePlaylist(extraRefinement) {
-  if (!state.selectedDuration) return;
+  if (!state.selectedDuration || state.generating) return;
+  state.generating = true;
 
   const prompt = buildPlaylistPrompt(extraRefinement);
   state.lastPrompt = prompt;
@@ -562,6 +568,8 @@ async function generatePlaylist(extraRefinement) {
   } catch (err) {
     alert("Couldn't generate playlist: " + err.message);
     showStep(2);
+  } finally {
+    state.generating = false;
   }
 }
 
@@ -637,7 +645,7 @@ function renderPlaylist(pl) {
       linksHtml = `<button class="ep-listen-btn" onclick="event.stopPropagation(); togglePlayer('${playerId}', this, null, ${JSON.stringify(ep.listenNotesId)})"><span class="listen-icon">▶</span> Listen</button>`;
     } else if (hasAudio) {
       // Open audio directly in new tab — most reliable cross-browser approach
-      linksHtml = `<a class="ep-listen-btn" href="${ep.audioUrl.replace(/"/g,'&quot;')}" target="_blank" rel="noopener"><span class="listen-icon">▶</span> Listen</a>`;
+      linksHtml = `<a class="ep-listen-btn" href="${esc(ep.audioUrl)}" target="_blank" rel="noopener"><span class="listen-icon">▶</span> Listen</a>`;
     }
 
     const playerHtml = hasEmbed ? `<div class="ep-player-wrap" id="player-${playerId}"></div>` : "";
@@ -658,7 +666,7 @@ function renderPlaylist(pl) {
     return `
     <div class="playlist-ep" style="animation-delay:${i * 0.05}s">
       <div class="ep-num">${i + 1}</div>
-      ${artworkUrl ? `<div class="ep-art"><img src="${artworkUrl}" alt="" /></div>` : ""}
+      ${artworkUrl ? `<div class="ep-art"><img src="${esc(artworkUrl)}" alt="" /></div>` : ""}
       <div class="ep-info">
         <div class="ep-info-title">${esc(title)}</div>
         <div class="ep-info-show">${esc(showName)}${ep.guest ? ` · ${esc(ep.guest)}` : ""}</div>
@@ -737,9 +745,11 @@ function togglePlayer(playerId, btn, audioUrl, listenNotesId) {
     audio.addEventListener("error", () => {
       const fallback = document.createElement("div");
       fallback.style.cssText = "padding:12px;background:var(--bg-warm);border-radius:8px;font:300 13px var(--sans);color:var(--text-mid);";
-      fallback.innerHTML = `⚠️ Audio blocked by host. <a href="${audioUrl.replace(/"/g,'')}" target="_blank" style="color:var(--accent)">Open directly ↗</a>`;
-      wrap.innerHTML = "";
-      wrap.appendChild(fallback);
+      const link = document.createElement("a");
+      link.href = audioUrl; link.target = "_blank"; link.rel = "noopener";
+      link.style.color = "var(--accent)"; link.textContent = "Open directly ↗";
+      fallback.append("⚠️ Audio blocked by host. ", link);
+      wrap.innerHTML = ""; wrap.appendChild(fallback);
     });
     wrap.innerHTML = "";
     wrap.appendChild(audio);
@@ -816,7 +826,8 @@ function renderShareButton() {
 }
 
 function startOver() {
-  state = { analysis: null, chatHistory: [], uiMessages: [], selectedDuration: null, playlistPrompt: "", refinements: [], shareId: null };
+  state = { analysis: null, chatHistory: [], uiMessages: [], selectedDuration: null, playlistPrompt: "", refinements: [], shareId: null, generating: false };
+  document.getElementById("shareBtn")?.remove();
   linkInput.value = "";
   chatInput.value = "";
   document.getElementById("chatMessages").innerHTML = "";

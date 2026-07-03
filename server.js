@@ -713,20 +713,6 @@ const server = http.createServer(async (req, res) => {
     return res.end();
   }
   const pathname = new URL(req.url, `http://localhost:${PORT}`).pathname;
-  if (req.method === "GET" && pathname === "/api/debug-itunes") {
-    const raw = await searchITunes("history podcast");
-    const ep = raw.results?.[0];
-    sendJSON(res, 200, {
-      totalResults: raw.results?.length,
-      firstEpisode: ep ? {
-        trackName: ep.trackName,
-        episodeUrl: ep.episodeUrl || null,
-        trackViewUrl: ep.trackViewUrl || null,
-        collectionName: ep.collectionName,
-      } : null,
-    });
-    return;
-  }
   if (req.method === "GET" && pathname === "/api/health") {
     let mongoStatus = db ? "connected" : "not connected";
     let mongoError = null;
@@ -753,9 +739,18 @@ const server = http.createServer(async (req, res) => {
     });
     return;
   }
-  if (req.method === "POST" && pathname === "/api/analyze") return handleAnalyze(req, res);
-  if (req.method === "POST" && pathname === "/api/chat") return handleChat(req, res);
-  if (req.method === "POST" && pathname === "/api/playlist") return handlePlaylist(req, res);
+  if (req.method === "POST" && pathname === "/api/analyze") {
+    if (rateLimit(getIP(req), 20)) return sendJSON(res, 429, { error: "Too many requests. Please wait a moment." });
+    return handleAnalyze(req, res);
+  }
+  if (req.method === "POST" && pathname === "/api/chat") {
+    if (rateLimit(getIP(req), 30)) return sendJSON(res, 429, { error: "Too many requests. Please wait a moment." });
+    return handleChat(req, res);
+  }
+  if (req.method === "POST" && pathname === "/api/playlist") {
+    if (rateLimit(getIP(req), 5)) return sendJSON(res, 429, { error: "Too many requests. Please wait a moment." });
+    return handlePlaylist(req, res);
+  }
 
   // Save playlist on demand (e.g. when MongoDB wasn't ready at generation time)
   if (req.method === "POST" && pathname === "/api/save") {
@@ -789,6 +784,22 @@ const server = http.createServer(async (req, res) => {
 
   serveStatic(res, path.join(__dirname, "public", pathname === "/" ? "index.html" : pathname));
 });
+
+// ─── Rate limiting ────────────────────────────────────────────────────
+const rateLimitMap = new Map(); // ip → { count, resetAt }
+function rateLimit(ip, maxPerMinute = 10) {
+  const now = Date.now();
+  const entry = rateLimitMap.get(ip) || { count: 0, resetAt: now + 60_000 };
+  if (now > entry.resetAt) { entry.count = 0; entry.resetAt = now + 60_000; }
+  entry.count++;
+  rateLimitMap.set(ip, entry);
+  return entry.count > maxPerMinute;
+}
+// Clean up stale entries every 5 minutes
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, entry] of rateLimitMap) { if (now > entry.resetAt) rateLimitMap.delete(ip); }
+}, 300_000);
 
 // ─── Global error guards ──────────────────────────────────────────────
 process.on("uncaughtException", (err) => {
