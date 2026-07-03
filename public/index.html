@@ -199,14 +199,14 @@
     .hidden { display: none !important; }
 
     /* ─── External links ─── */
-    .ep-external-links { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+    .ep-external-links { margin-top: 8px; }
     .ep-ext-btn {
-      padding: 5px 10px; border-radius: 6px; border: 1px solid var(--border);
-      background: var(--bg-warm); color: var(--text-dim); font: 400 11px var(--sans);
-      text-decoration: none; display: inline-flex; align-items: center; gap: 4px;
-      transition: all 0.2s; white-space: nowrap;
+      padding: 3px 10px; border-radius: 20px; border: 1px solid var(--border);
+      background: transparent; color: var(--text-dim); font: 400 11px var(--sans);
+      text-decoration: none; display: inline-flex; align-items: center;
+      transition: all 0.15s; white-space: nowrap;
     }
-    .ep-ext-btn:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-bg); }
+    .ep-ext-btn:hover { border-color: var(--accent); color: var(--accent); }
 
     /* ─── Mobile ─── */
     @media (max-width: 480px) {
@@ -648,15 +648,12 @@ function renderPlaylist(pl) {
     if (realDuration) metaTags += `<span class="ep-meta-tag">${realDuration} min</span>`;
     if (publisher && publisher !== showName) metaTags += `<span class="ep-meta-tag">${esc(publisher)}</span>`;
 
-    // External search links
-    const searchQuery = encodeURIComponent(`${title} ${showName}`);
-    const externalLinks = `
+    // External links — only real, direct URLs
+    const appleUrl = ep.listenNotesUrl || null;
+    const externalLinks = appleUrl ? `
       <div class="ep-external-links">
-        <a class="ep-ext-btn" href="https://open.spotify.com/search/${searchQuery}" target="_blank" rel="noopener">🎵 Spotify</a>
-        <a class="ep-ext-btn" href="https://podcasts.apple.com/search?term=${searchQuery}" target="_blank" rel="noopener">🎙 Apple</a>
-        <a class="ep-ext-btn" href="https://www.google.com/search?q=${searchQuery}+podcast" target="_blank" rel="noopener">🔍 Search</a>
-        ${ep.listenNotesUrl ? `<a class="ep-ext-btn" href="${esc(ep.listenNotesUrl)}" target="_blank" rel="noopener">📋 More info</a>` : ""}
-      </div>`;
+        <a class="ep-ext-btn" href="${esc(appleUrl)}" target="_blank" rel="noopener">Apple Podcasts ↗</a>
+      </div>` : "";
 
     return `
     <div class="playlist-ep" style="animation-delay:${i * 0.05}s">
