@@ -180,35 +180,6 @@
     .btn-share:hover { background: var(--accent); color: #fff; }
     .btn-share.copied { background: var(--green); border-color: var(--green); color: #fff; }
 
-    /* ─── Export ─── */
-    .export-section { margin: 12px auto 0; max-width: 320px; }
-    .export-toggle {
-      display: flex; align-items: center; gap: 6px; margin: 0 auto;
-      background: none; border: none; color: var(--text-dim);
-      font: 400 13px var(--sans); cursor: pointer; padding: 4px 0;
-      text-decoration: underline; text-decoration-style: dotted; text-underline-offset: 3px;
-    }
-    .export-toggle:hover { color: var(--text); }
-    .export-panel {
-      margin-top: 10px; padding: 16px; border-radius: 12px;
-      background: var(--bg-warm); border: 1px solid var(--border);
-      display: none;
-    }
-    .export-panel.open { display: block; }
-    .export-panel-title { font: 500 12px var(--mono); color: var(--text-dim); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 10px; }
-    .export-btn {
-      display: flex; align-items: flex-start; gap: 10px; width: 100%;
-      padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border);
-      background: var(--bg-card); cursor: pointer; text-align: left;
-      transition: border-color 0.15s; margin-bottom: 8px; text-decoration: none;
-    }
-    .export-btn:last-child { margin-bottom: 0; }
-    .export-btn:hover { border-color: var(--accent); }
-    .export-btn-icon { font-size: 18px; flex-shrink: 0; line-height: 1.3; }
-    .export-btn-text { flex: 1; }
-    .export-btn-label { font: 500 13px var(--sans); color: var(--text); display: block; }
-    .export-btn-desc { font: 300 11px/1.4 var(--sans); color: var(--text-dim); display: block; margin-top: 2px; }
-    .export-note { font: 300 11px/1.5 var(--sans); color: var(--text-dim); margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
 
     .guidance-msg {
       padding: 20px; margin-bottom: 20px; border-radius: 14px;
@@ -853,80 +824,11 @@ function renderShareButton() {
 
   const startOverBtn = document.querySelector(".btn-start-over");
   startOverBtn.parentNode.insertBefore(btn, startOverBtn);
-
-  // Remove any existing export section
-  document.getElementById("exportSection")?.remove();
-
-  const exportSection = document.createElement("div");
-  exportSection.id = "exportSection";
-  exportSection.className = "export-section";
-  exportSection.innerHTML = `
-    <button class="export-toggle" onclick="toggleExportPanel()">⬇ Export to podcast app</button>
-    <div class="export-panel" id="exportPanel">
-      <div class="export-panel-title">Export options</div>
-      <a id="exportRssBtn" class="export-btn" href="#" target="_blank" rel="noopener">
-        <span class="export-btn-icon">📻</span>
-        <span class="export-btn-text">
-          <span class="export-btn-label">Subscribe in podcast app</span>
-          <span class="export-btn-desc">Opens an RSS feed you can subscribe to in Overcast, Pocket Casts, Apple Podcasts, or any podcast app that supports custom feeds.</span>
-        </span>
-      </a>
-      <button class="export-btn" id="exportCopyBtn" onclick="copyEpisodeLinks()">
-        <span class="export-btn-icon">📋</span>
-        <span class="export-btn-text">
-          <span class="export-btn-label">Copy episode links</span>
-          <span class="export-btn-desc">Copies a plain-text list of episode titles and Apple Podcasts links to your clipboard.</span>
-        </span>
-      </button>
-      <div class="export-note">⚠️ Spotify doesn't support importing custom playlists. The RSS feed works in most other podcast apps.</div>
-    </div>
-  `;
-  startOverBtn.parentNode.insertBefore(exportSection, startOverBtn);
-
-  // Wire up RSS link once shareId is available — update when we have it
-  function updateExportRssLink() {
-    const rssBtn = document.getElementById("exportRssBtn");
-    if (!rssBtn) return;
-    if (state.shareId) {
-      rssBtn.href = window.location.origin + "/api/export/" + state.shareId + ".xml";
-    } else {
-      rssBtn.href = "#";
-      rssBtn.onclick = (e) => { e.preventDefault(); alert("Save the playlist first by tapping 'Share this playlist', then export."); };
-    }
-  }
-  updateExportRssLink();
-
-  // Re-run after shareId is set (share button flow sets state.shareId async)
-  const origOnclick = btn.onclick;
-  btn.onclick = async () => { await origOnclick.call(btn); updateExportRssLink(); };
-}
-
-function toggleExportPanel() {
-  document.getElementById("exportPanel").classList.toggle("open");
-}
-
-function copyEpisodeLinks() {
-  const pl = state.lastPlaylist;
-  if (!pl) return;
-  const lines = (pl.episodes || []).map((ep, i) => {
-    const title = ep.lnTitle || ep.episode || "Episode";
-    const show = ep.lnPodcast || ep.podcast || "";
-    const url = ep.listenNotesUrl || ep.audioUrl || "";
-    return `${i + 1}. ${title} — ${show}${url ? "\n   " + url : ""}`;
-  });
-  const text = `${pl.playlistTitle || "Podcast Playlist"}\n\n${lines.join("\n\n")}`;
-  navigator.clipboard.writeText(text).then(() => {
-    const btn = document.getElementById("exportCopyBtn");
-    const label = btn.querySelector(".export-btn-label");
-    label.textContent = "✓ Copied!";
-    setTimeout(() => { label.textContent = "Copy episode links"; }, 2000);
-  }).catch(() => { prompt("Copy this:", text); });
 }
 
 function startOver() {
   state = { analysis: null, chatHistory: [], uiMessages: [], selectedDuration: null, playlistPrompt: "", refinements: [], shareId: null, generating: false };
   document.getElementById("shareBtn")?.remove();
-  document.getElementById("exportSection")?.remove();
   linkInput.value = "";
   chatInput.value = "";
   document.getElementById("chatMessages").innerHTML = "";
