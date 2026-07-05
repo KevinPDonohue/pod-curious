@@ -755,6 +755,59 @@ const server = http.createServer(async (req, res) => {
     return handlePlaylist(req, res);
   }
 
+  // Export playlist as a subscribable RSS feed (used by podcast app URL schemes)
+  if (req.method === "GET" && pathname.startsWith("/api/export/")) {
+    const id = pathname.slice("/api/export/".length).replace(/\.xml$/, "");
+    const playlist = await getPlaylist(id);
+    if (!playlist) { sendJSON(res, 404, { error: "Not found" }); return; }
+
+    const baseUrl = `https://${req.headers.host}`;
+    const selfUrl  = `${baseUrl}/api/export/${id}.xml`;
+    const episodes = playlist.episodes || [];
+    const title    = playlist.playlistTitle || "Pod Curious Playlist";
+    const desc     = playlist.playlistDescription || "A podcast playlist by Pod Curious";
+    const pubDate  = new Date().toUTCString();
+
+    const xe  = s => String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+    const xea = s => String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+
+    const items = episodes.map(ep => {
+      const audio   = ep.audioUrl || "";
+      const guid    = ep.episodeGuid || ep.itunesTrackId || audio || ep.listenNotesUrl || "";
+      const durSec  = ep.lnAudioLength ? ep.lnAudioLength * 60 : 0;
+      const image   = ep.listenNotesImage || ep.lnPodcastImage || "";
+      const epDate  = ep.lnPubDate ? new Date(ep.lnPubDate).toUTCString() : pubDate;
+      return `    <item>
+      <title>${xe(ep.lnTitle||ep.episode||"")}</title>
+      <itunes:author>${xe(ep.lnPodcast||ep.podcast||"")}</itunes:author>
+      <description>${xe(ep.lnDescription||ep.description||"")}</description>
+      <pubDate>${epDate}</pubDate>
+      <guid isPermaLink="false">${xe(guid)}</guid>
+      ${audio   ? `<enclosure url="${xea(audio)}" type="audio/mpeg" length="0"/>` : ""}
+      ${durSec  ? `<itunes:duration>${durSec}</itunes:duration>` : ""}
+      ${image   ? `<itunes:image href="${xea(image)}"/>` : ""}
+    </item>`;
+    }).join("\n");
+
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>${xe(title)}</title>
+    <description>${xe(desc)}</description>
+    <link>${baseUrl}/p/${id}</link>
+    <atom:link href="${xea(selfUrl)}" rel="self" type="application/rss+xml"/>
+    <language>en-us</language>
+    <pubDate>${pubDate}</pubDate>
+    <itunes:type>episodic</itunes:type>
+${items}
+  </channel>
+</rss>`;
+
+    res.writeHead(200, { "Content-Type": "application/rss+xml; charset=utf-8", "Access-Control-Allow-Origin": "*" });
+    res.end(xml);
+    return;
+  }
+
   // Save playlist on demand (e.g. when MongoDB wasn't ready at generation time)
   if (req.method === "POST" && pathname === "/api/save") {
     try {
