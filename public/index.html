@@ -180,19 +180,6 @@
     .btn-share:hover { background: var(--accent); color: #fff; }
     .btn-share.copied { background: var(--green); border-color: var(--green); color: #fff; }
 
-    /* ─── App open buttons ─── */
-    .app-open-section { margin: 16px 0 0; }
-    .app-open-label { font: 500 10px var(--mono); color: var(--text-dim); text-transform: uppercase; letter-spacing: 1.5px; text-align: center; margin-bottom: 10px; }
-    .app-open-btns { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
-    .app-open-btn {
-      display: flex; align-items: center; gap: 7px;
-      padding: 9px 16px; border-radius: 999px;
-      border: 1.5px solid var(--border); background: var(--bg-card);
-      color: var(--text); font: 500 13px var(--sans);
-      text-decoration: none; transition: all 0.15s; white-space: nowrap;
-    }
-    .app-open-btn:hover { border-color: var(--accent); color: var(--accent); }
-    .app-open-btn.saving { opacity: 0.5; pointer-events: none; }
 
 
     .guidance-msg {
@@ -580,8 +567,6 @@ async function generatePlaylist(extraRefinement) {
     showGuidance(playlist);
     renderShareButton();
     showStep(3);
-    // App links are live as soon as shareId exists (auto-saved server-side)
-    if (state.shareId) updateAppLinks();
   } catch (err) {
     alert("Couldn't generate playlist: " + err.message);
     showStep(2);
@@ -796,7 +781,6 @@ function showStep(n) {
 
 function renderShareButton() {
   document.getElementById("shareBtn")?.remove();
-  document.getElementById("appOpenSection")?.remove();
 
   // Share button
   const btn = document.createElement("button");
@@ -812,45 +796,13 @@ function renderShareButton() {
     }
   };
 
-  // App open section
-  const appSection = document.createElement("div");
-  appSection.id = "appOpenSection";
-  appSection.className = "app-open-section";
-  appSection.innerHTML = `
-    <div class="app-open-label">Open in podcast app</div>
-    <div class="app-open-btns">
-      <a id="appBtnApple"   class="app-open-btn saving" href="#">🎙 Apple Podcasts</a>
-      <a id="appBtnOvercast" class="app-open-btn saving" href="#">🟠 Overcast</a>
-      <a id="appBtnCastro"  class="app-open-btn saving" href="#">🟣 Castro</a>
-    </div>`;
-
   const startOverBtn = document.querySelector(".btn-start-over");
   startOverBtn.parentNode.insertBefore(btn, startOverBtn);
-  startOverBtn.parentNode.insertBefore(appSection, startOverBtn);
-
-  updateAppLinks();
-}
-
-function updateAppLinks() {
-  const id = state.shareId;
-  const apple    = document.getElementById("appBtnApple");
-  const overcast = document.getElementById("appBtnOvercast");
-  const castro   = document.getElementById("appBtnCastro");
-  if (!apple) return;
-
-  if (id) {
-    const feedUrl = encodeURIComponent(window.location.origin + "/api/export/" + id + ".xml");
-    apple.href    = `podcast://${window.location.host}/api/export/${id}.xml`;
-    overcast.href = `overcast://x-callback-url/add?url=${feedUrl}`;
-    castro.href   = `castro://subscribe/${decodeURIComponent(feedUrl)}`;
-    [apple, overcast, castro].forEach(b => b.classList.remove("saving"));
-  }
 }
 
 function startOver() {
   state = { analysis: null, chatHistory: [], uiMessages: [], selectedDuration: null, playlistPrompt: "", refinements: [], shareId: null, generating: false };
   document.getElementById("shareBtn")?.remove();
-  document.getElementById("appOpenSection")?.remove();
   linkInput.value = "";
   chatInput.value = "";
   document.getElementById("chatMessages").innerHTML = "";
